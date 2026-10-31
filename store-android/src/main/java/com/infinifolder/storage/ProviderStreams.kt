@@ -7,13 +7,15 @@ import java.io.IOException
 
 /** Adapts demonstrated handles; no stat call, full download or silent writable fallback. */
 object ProviderStreams {
-    fun openRead(provider: StorageProvider, ref: ResourceRef, metadata: ResourceMetadata? = null): ByteSource {
+    fun openRead(provider: StorageProvider, ref: ResourceRef, metadata: ResourceMetadata? = null, sourceIdentity: String? = null): ByteSource {
         val input = when (val result = provider.openRead(ref)) {
             is ProviderResult.Success -> result.value
             is ProviderResult.Failure -> throw IOException(result.message, result.cause)
             is ProviderResult.Unsupported -> throw IOException("Reading this resource is unsupported")
         }
-        return InputStreamSource(input, snapshot(ref, metadata).copy(capabilities = setOf(Capability.READ)))
+        val info = snapshot(ref, metadata)
+        return InputStreamSource(input, info.copy(capabilities = setOf(Capability.READ),
+            provenance = info.provenance.copy(source = sourceIdentity ?: info.provenance.source)))
     }
     fun openPositional(provider: StorageProvider, ref: ResourceRef, metadata: ResourceMetadata? = null): ByteSource {
         val result = provider.openSeekable(ref, false)
@@ -34,8 +36,8 @@ object ProviderStreams {
         override fun open(): ByteSource = if (positional) openPositional(provider, ref, resourceMetadata) else openRead(provider, ref, resourceMetadata)
     }
     private fun snapshot(ref: ResourceRef, metadata: ResourceMetadata?): StreamMetadata = StreamMetadata(
-        content = ContentType(mimeType = metadata?.mimeType), name = metadata?.name, length = metadata?.sizeBytes,
-        finiteness = Finiteness.UNKNOWN,
+        content = ContentType(kind = if (metadata?.isDirectory == true) DataKind.DIRECTORY else DataKind.BYTES, mimeType = metadata?.mimeType), name = metadata?.name, length = metadata?.sizeBytes,
+        finiteness = Finiteness.UNKNOWN, warnings = listOfNotNull(metadata?.readError, metadata?.recoveryNote),
         provenance = Provenance(source = "${ref.providerId}:${ref.documentId}"))
 }
 

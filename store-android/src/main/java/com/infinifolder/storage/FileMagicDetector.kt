@@ -651,7 +651,7 @@ object FileMagicDetector {
         }
     }
 
-    private fun ufsVersion(bytes: ByteArray, offset: Int): Int? {
+    internal fun ufsVersion(bytes: ByteArray, offset: Int): Int? {
         val little = u32le(bytes, offset)
         val big = ((little and 255) shl 24) or ((little and 0xff00) shl 8) or
             ((little ushr 8) and 0xff00) or ((little ushr 24) and 255)

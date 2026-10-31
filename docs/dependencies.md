@@ -2,8 +2,8 @@
 
 The first extraction retains Android SDK/core, Commons Compress/XZ/zstd,
 JSch, Commons Net, jcifs-ng, OkHttp, Bt and the Android-compatible Guice no_aop
-artifact at the versions already used by InfiniFolder. Store uses Sound's small
-playlist API plus Stream contracts. Artifact declarations are in store-android's
+artifact at the versions already used by InfiniFolder. Store uses Stream contracts;
+playlist-container parsing and its Sound API dependency live in Vault. Artifact declarations are in store-android's
 build.gradle.kts; transitive notices and license obligations still apply.
 
 No bundled native binaries were added. zstd is the existing AAR dependency and

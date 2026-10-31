@@ -17,8 +17,6 @@ val familyRoot = providers.gradleProperty("infiniLibrariesDir").orNull?.let(::fi
 rootProject.name = "libinfinistore"
 check(familyRoot.resolve("libinfinistream/settings.gradle.kts").isFile) { "Missing sibling libinfinistream; clone workspace dependencies or set -PinfiniLibrariesDir" }
 includeBuild(familyRoot.resolve("libinfinistream"))
-check(familyRoot.resolve("libinfinisound/settings.gradle.kts").isFile) { "Missing sibling libinfinisound; clone workspace dependencies or set -PinfiniLibrariesDir" }
-includeBuild(familyRoot.resolve("libinfinisound"))
 include(":store-android")
 if (System.getenv("ANDROID_HOME").isNullOrBlank() && System.getenv("ANDROID_SDK_ROOT").isNullOrBlank() && System.getProperty("android.home").isNullOrBlank()) {
     val props = java.util.Properties()
