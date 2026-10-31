@@ -28,3 +28,7 @@ It no longer synthesizes permissions or assigns the app's identity to the file.
 The new unknown-metadata case brings the standalone suite to seven passing tests.
 Monkey's Audio `.ape` has an explicit `audio/x-ape` association for the registered
 audio codecs; the MIME check brings the standalone suite to eight passing tests.
+
+Winamp `.wsz` skins are classified as ZIP-packaged application resources, even
+with a mismatched provider MIME type. The host owns install/apply actions; Vault
+uses the common container mapping for archive browsing.

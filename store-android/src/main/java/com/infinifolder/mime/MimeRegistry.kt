@@ -6,6 +6,7 @@ import java.util.Locale
 object MimeRegistry {
     data class PackageFormat(val mime: String, val container: String)
     val packages = mapOf(
+        "wsz" to PackageFormat("application/x-winamp-skin", "zip"),
         "apk" to PackageFormat("application/vnd.android.package-archive", "zip"),
         "xapk" to PackageFormat("application/x-xapk", "zip"),
         "apkm" to PackageFormat("application/vnd.apkm", "zip"),
