@@ -54,7 +54,7 @@ object MimeRegistry {
         "fits" to "image/fits", "fit" to "image/fits", "fts" to "image/fits", "dcm" to "image/dicom", "dicom" to "image/dicom",
         "wmf" to "image/wmf", "wmz" to "image/wmf", "ps" to "image/x-eps", "eps" to "image/x-eps", "ept" to "image/x-eps", "ans" to "image/x-ansi",
         "mp3" to "audio/mpeg", "mp2" to "audio/mpeg", "mp1" to "audio/mpeg", "wav" to "audio/wav", "ogg" to "audio/ogg", "oga" to "audio/ogg", "flac" to "audio/flac", "opus" to "audio/opus", "m4a" to "audio/mp4",
-        "aac" to "audio/aac", "ac3" to "audio/ac3", "eac3" to "audio/eac3", "dts" to "audio/vnd.dts",
+        "aac" to "audio/aac", "ape" to "audio/x-ape", "ac3" to "audio/ac3", "eac3" to "audio/eac3", "dts" to "audio/vnd.dts",
         "wma" to "audio/x-ms-wma", "alac" to "audio/alac", "m4b" to "audio/mp4", "m4r" to "audio/mp4", "3ga" to "audio/3gpp",
         "mka" to "audio/x-matroska", "weba" to "audio/webm",
         "au" to "audio/basic", "snd" to "audio/basic",
