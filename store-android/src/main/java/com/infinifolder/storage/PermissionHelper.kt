@@ -216,31 +216,15 @@ object PermissionHelper {
             // Android OS stat unavailable
         }
 
-        // Fallback based on file.can*
-        val synthesizedMode = if (file.isDirectory) {
-            var m = 0b101_101_101 // r-xr-xr-x (0555)
-            if (canWrite) m = m or 0b010_010_010 // rwxrwxrwx (0777)
-            if (!canRead) m = m and 0b011_011_011
-            m
-        } else {
-            var m = 0b100_100_100 // r--r--r-- (0444)
-            if (canWrite) m = m or 0b010_010_010 // rw-rw-rw- (0666)
-            if (canExecute) m = m or 0b001_001_001 // rwxrwxrwx (0777)
-            if (!canRead) m = m and 0b011_011_011
-            m
-        }
-
-        val appUid = runCatching { android.system.Os.getuid() }.getOrDefault(-1)
-        val appGid = runCatching { android.system.Os.getgid() }.getOrDefault(-1)
-
+        // Access checks establish effective access, not POSIX ownership or mode.
         return FilePermissions(
             canRead = canRead,
             canWrite = canWrite,
             canExecute = canExecute,
-            mode = synthesizedMode,
-            formatted = formatPosix(synthesizedMode, file.isDirectory),
-            owner = if (appUid >= 0) formatUid(appUid) else null,
-            group = if (appGid >= 0) formatGid(appGid) else null
+            mode = null,
+            formatted = null,
+            owner = null,
+            group = null
         )
     }
 

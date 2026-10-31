@@ -21,3 +21,8 @@ Protocol dependencies and permissions are preserved. This initial module is Andr
 RealMedia container extensions have explicit MIME entries: `.rm` is
 `application/vnd.rn-realmedia`, `.rmvb` is `application/vnd.rn-realmedia-vbr`, and
 `.ra` retains `audio/x-pn-realaudio`. Hosts choose the matching playback library.
+
+When both native metadata lookups fail, `PermissionHelper` preserves effective
+`canRead/canWrite/canExecute` checks and returns unknown POSIX mode/owner/group.
+It no longer synthesizes permissions or assigns the app's identity to the file.
+The new unknown-metadata case brings the standalone suite to seven passing tests.
