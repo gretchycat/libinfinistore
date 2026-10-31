@@ -71,6 +71,7 @@ object MimeRegistry {
         "dsf" to "audio/x-dsf", "dff" to "audio/x-dff", "wv" to "audio/x-wavpack", "tta" to "audio/x-tta", "ra" to "audio/x-pn-realaudio",
         "mlp" to "audio/x-mlp", "thd" to "audio/x-truehd", "cdda" to "audio/x-cdda",
         "m3u" to "audio/x-mpegurl", "m3u8" to "audio/x-mpegurl", "pls" to "audio/x-scpls", "xspf" to "application/xspf+xml", "cue" to "application/x-cue",
+        "rm" to "application/vnd.rn-realmedia", "rmvb" to "application/vnd.rn-realmedia-vbr",
         "mp4" to "video/mp4", "mkv" to "video/x-matroska", "webm" to "video/webm",
         "zip" to "application/zip", "cbz" to "application/zip", "tar" to "application/x-tar", "cbt" to "application/x-tar", "gz" to "application/gzip", "tgz" to "application/gzip",
         "bz2" to "application/x-bzip2", "tbz" to "application/x-bzip2", "tbz2" to "application/x-bzip2", "xz" to "application/x-xz", "txz" to "application/x-xz",

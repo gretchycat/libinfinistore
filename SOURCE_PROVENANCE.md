@@ -108,3 +108,9 @@ Extracted structurally from [gretchycat/infinifolder](https://github.com/gretchy
 | `storage-engine/src/main/java/com/infinifolder/torrent/TorrentTransferPreferences.kt` | `store-android/src/main/java/com/infinifolder/torrent/TorrentTransferPreferences.kt` | `21f76b88bdbcdaa51516ac1b5c3347142ded9f28598ab4d86aa974963fda7307` |
 | `storage-engine/src/main/res/xml/shared_paths.xml` | `store-android/src/main/res/xml/shared_paths.xml` | `3828e07f9c91e352cbf549a535058ed584294d9a7bc9397ca9ff81acbe967160` |
 | `storage-engine/src/main/AndroidManifest.xml` | `store-android/src/main/AndroidManifest.xml` | `be5f8f23027d1e35d86cd374f2cdacff574675ac282e9cca707cdae8308fdb4e` |
+
+## 2026-10-31 — RealMedia MIME entries
+
+The extension registry now identifies `.rm`/`.rmvb` explicitly, independently of
+the Android MIME table. `.ra` retains its audio identity. Playback dispatch is
+owned by the consuming viewer, not Store.

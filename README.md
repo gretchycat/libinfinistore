@@ -17,3 +17,7 @@ Original-code licensing is pending owner selection; see LICENSE.md. No original 
 Protocol dependencies and permissions are preserved. This initial module is Android-specific, not a portable reimplementation of network providers. The next split can separate pure resource types without breaking callers.
 
 `StreamFormatProbe` borrows a bounded positional ProbeReader for headers/nonzero signatures/footers, preserving the caller's cursor. It returns provisional metadata, candidates/confidence/evidence and mismatch warnings while retaining the original name/provenance. Sequential callers can inspect an already buffered prefix and replay it. Unknown/raw data is not classified from its extension. No parser is opened by inspection; existing format implementations perform validation at explicit execution.
+
+RealMedia container extensions have explicit MIME entries: `.rm` is
+`application/vnd.rn-realmedia`, `.rmvb` is `application/vnd.rn-realmedia-vbr`, and
+`.ra` retains `audio/x-pn-realaudio`. Hosts choose the matching playback library.
