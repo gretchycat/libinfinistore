@@ -34,6 +34,36 @@ class SftpClientPool : Closeable {
 
     fun <T> withChannel(config: SftpConfig, credentials: SftpCredentials, block: (ChannelSftp) -> T): T {
         val client = getOrCreateClient(config, credentials)
+        return withChannel(client, config, block)
+    }
+
+    /** Retry an idempotent, read-only operation once when JSch's session stream has gone stale. */
+    fun <T> withReadChannel(config: SftpConfig, credentials: SftpCredentials, block: (ChannelSftp) -> T): T {
+        val client = getOrCreateClient(config, credentials)
+        try {
+            return withChannel(client, config, block)
+        } catch (first: Exception) {
+            if (!isSessionUnavailable(client, first)) throw first
+            com.infinifolder.storage.DiagnosticLog.record(
+                "sftp.session.reconnect",
+                "connection=${config.id} operation=read-only cause=${first.javaClass.simpleName}"
+            )
+            val replacement = replaceStaleClient(config, credentials, client)
+            try {
+                return withChannel(replacement, config, block)
+            } catch (retry: Exception) {
+                if (retry !== first) retry.addSuppressed(first)
+                com.infinifolder.storage.DiagnosticLog.record(
+                    "sftp.session.reconnect.failed",
+                    "connection=${config.id} operation=read-only",
+                    retry
+                )
+                throw retry
+            }
+        }
+    }
+
+    private fun <T> withChannel(client: ActiveClient, config: SftpConfig, block: (ChannelSftp) -> T): T {
         return synchronized(client) {
             try {
                 if (!client.channel.isConnected) {
@@ -101,7 +131,10 @@ class SftpClientPool : Closeable {
         return generateSequence(error) { it.cause }.any { cause ->
             val message = cause.message.orEmpty()
             message.contains("session is down", ignoreCase = true) ||
-                message.contains("session is not connected", ignoreCase = true)
+                message.contains("session is not connected", ignoreCase = true) ||
+                // JSch may leave Session.isConnected true after its shared input
+                // stream has been closed. The next SFTP request then fails here.
+                message.contains("inputstream is closed", ignoreCase = true)
         }
     }
 

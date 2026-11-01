@@ -82,12 +82,14 @@ class SftpStorageProvider(
         val (config, creds) = resolveConfigAndCredentials(SftpUri.getConnectionId(uri))
         val path = SftpUri.getRemotePath(uri)
         if (writable) {
-            val attrs = clientPool.withChannel(config, creds) { it.lstat(path) }
+            val attrs = clientPool.withReadChannel(config, creds) { it.lstat(path) }
             if (!attrs.isReg || attrs.isLink) throw IOException("Only regular SFTP files can be edited as image targets")
             ProviderResult.Success(com.infinifolder.storage.StagedRandomWriteDevice.open(this, ref,
                 java.io.File(context.cacheDir, "image_working"), java.io.File(context.filesDir, "save_recovery")))
         } else {
-            val size = clientPool.withChannel(config, creds) { it.stat(path).size }
+            // This lookup is idempotent. Recover once if JSch reports a stale
+            // pooled session before creating the independent range reader.
+            val size = clientPool.withReadChannel(config, creds) { it.stat(path).size }
             ProviderResult.Success(com.infinifolder.archive.RangeCachedBlockDevice(
                 SftpBlockDevice(clientPool, config, creds, path, isReadOnly = true, initialSize = size)))
         }

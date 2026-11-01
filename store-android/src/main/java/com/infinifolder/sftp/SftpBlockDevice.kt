@@ -29,7 +29,7 @@ class SftpBlockDevice(
     private var bytesReturned = 0L
     private var lastReportMs = 0L
 
-    private fun fetchSize(): Long = clientPool.withChannel(config, credentials) { channel ->
+    private fun fetchSize(): Long = clientPool.withReadChannel(config, credentials) { channel ->
         channel.stat(remotePath).size
     }
 
