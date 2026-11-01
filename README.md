@@ -32,3 +32,8 @@ audio codecs; the MIME check brings the standalone suite to eight passing tests.
 Winamp `.wsz` skins are classified as ZIP-packaged application resources, even
 with a mismatched provider MIME type. The host owns install/apply actions; Vault
 uses the common container mapping for archive browsing.
+
+SFTP positional reads reopen a disconnected pooled session once when opening a
+range channel. If a metadata operation discovers a dead session, the pool drops
+it so the next operation establishes a fresh connection. A failed retry remains
+an explicit read error; write callbacks are not replayed.

@@ -51,6 +51,7 @@ class SftpClientPool : Closeable {
                 // connected channel. Replace it for the next operation, without
                 // replaying this callback or disconnecting independent readers.
                 client.channel.disconnect()
+                if (isSessionUnavailable(client, e)) discardClient(config.id, client)
                 throw e
             }
         }
@@ -59,15 +60,74 @@ class SftpClientPool : Closeable {
     /** Range readers own their channel; closing a partial GET cannot poison metadata operations. */
     fun openReadChannel(config: SftpConfig, credentials: SftpCredentials, bulkRequests: Int = 128): ChannelSftp {
         val client = getOrCreateClient(config, credentials)
-        val channel = client.session.openChannel("sftp") as ChannelSftp
         try {
+            return openReadChannel(client, config, bulkRequests)
+        } catch (first: Exception) {
+            if (!isSessionUnavailable(client, first)) throw first
+            com.infinifolder.storage.DiagnosticLog.record(
+                "sftp.session.reconnect",
+                "connection=${config.id} operation=open-range-channel cause=${first.javaClass.simpleName}"
+            )
+            val replacement = replaceStaleClient(config, credentials, client)
+            try {
+                return openReadChannel(replacement, config, bulkRequests)
+            } catch (retry: Exception) {
+                if (retry !== first) retry.addSuppressed(first)
+                com.infinifolder.storage.DiagnosticLog.record(
+                    "sftp.session.reconnect.failed",
+                    "connection=${config.id} operation=open-range-channel",
+                    retry
+                )
+                throw retry
+            }
+        }
+    }
+
+    private fun openReadChannel(client: ActiveClient, config: SftpConfig, bulkRequests: Int): ChannelSftp {
+        var channel: ChannelSftp? = null
+        try {
+            channel = client.session.openChannel("sftp") as ChannelSftp
             channel.setBulkRequests(bulkRequests)
             channel.connect(config.timeoutSeconds * 1000)
             return channel
-        } catch (e: Exception) {
-            channel.disconnect()
-            throw e
+        } catch (error: Exception) {
+            runCatching { channel?.disconnect() }
+            throw error
         }
+    }
+
+    private fun isSessionUnavailable(client: ActiveClient, error: Throwable): Boolean {
+        if (!client.session.isConnected) return true
+        return generateSequence(error) { it.cause }.any { cause ->
+            val message = cause.message.orEmpty()
+            message.contains("session is down", ignoreCase = true) ||
+                message.contains("session is not connected", ignoreCase = true)
+        }
+    }
+
+    /** Replace only the failed pooled session; another thread may already have refreshed it. */
+    private fun replaceStaleClient(config: SftpConfig, credentials: SftpCredentials,
+        stale: ActiveClient): ActiveClient = synchronized(lock) {
+        val current = clients[config.id]
+        if (current !== stale && current?.session?.isConnected == true) return@synchronized current
+        if (current != null) clients.remove(config.id)
+        if (current != null) disconnectClient(current)
+        if (current !== stale) disconnectClient(stale)
+        val fresh = createClient(config, credentials)
+        clients[config.id] = fresh
+        fresh
+    }
+
+    private fun discardClient(connectionId: String, stale: ActiveClient) {
+        synchronized(lock) {
+            if (clients[connectionId] === stale) clients.remove(connectionId)
+            disconnectClient(stale)
+        }
+    }
+
+    private fun disconnectClient(client: ActiveClient) {
+        try { client.channel.disconnect() } catch (_: Exception) {}
+        try { client.session.disconnect() } catch (_: Exception) {}
     }
 
     private fun getOrCreateClient(config: SftpConfig, credentials: SftpCredentials): ActiveClient {
@@ -247,19 +307,13 @@ class SftpClientPool : Closeable {
 
     fun disconnect(connectionId: String) {
         synchronized(lock) {
-            clients.remove(connectionId)?.let { client ->
-                try { client.channel.disconnect() } catch (_: Exception) {}
-                try { client.session.disconnect() } catch (_: Exception) {}
-            }
+            clients.remove(connectionId)?.let(::disconnectClient)
         }
     }
 
     override fun close() {
         synchronized(lock) {
-            for ((_, client) in clients) {
-                try { client.channel.disconnect() } catch (_: Exception) {}
-                try { client.session.disconnect() } catch (_: Exception) {}
-            }
+            clients.values.forEach(::disconnectClient)
             clients.clear()
         }
     }
