@@ -37,3 +37,10 @@ SFTP positional reads reopen a disconnected pooled session once when opening a
 range channel. If a metadata operation discovers a dead session, the pool drops
 it so the next operation establishes a fresh connection. A failed retry remains
 an explicit read error; write callbacks are not replayed.
+
+File-operation transfers, cache staging, revision fingerprints and replacement
+snapshots use Stream's bounded copy contract. Provider stream APIs remain supported
+compatibility edges; their owning callers still close/flush them. Cancellation of a
+replacement does not cancel its immediate rollback: restoration and durable recovery
+recording run with an existing interrupt deferred, then reinstate that signal.
+Recovery restoration publishes from the preserved file without a full-backup RAM copy.

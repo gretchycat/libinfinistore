@@ -543,7 +543,6 @@ object FileOperations {
                 if (opened !is ProviderResult.Success) throw IOException((opened as? ProviderResult.Failure)?.message ?: "Cannot verify file", (opened as? ProviderResult.Failure)?.cause)
                 opened.value.use { input ->
                     val hash = MessageDigest.getInstance("SHA-256")
-                    val buffer = ByteArray(128 * 1024)
                     var checked = 0L
                     var lastReport = 0L
                     var lastLog = System.nanoTime()
@@ -555,20 +554,26 @@ object FileOperations {
                             indeterminate = false, currentItemBytes = checked, currentItemTotalBytes = expectedBytes))
                     }
                     if (name != null) report()
-                    while (true) {
-                        if (isCancelled()) throw InterruptedException("Transfer cancelled")
-                        if (allowSkip && !verificationWanted()) throw VerificationSkipped()
-                        val n = input.read(buffer)
-                        if (n < 0) break
-                        hash.update(buffer, 0, n)
-                        checked += n
-                        val now = System.nanoTime()
-                        if (name != null && now - lastReport >= 300_000_000L) { report(); lastReport = now }
-                        if (name != null && now - lastLog >= 5_000_000_000L) {
-                            com.infinifolder.storage.DiagnosticLog.record("transfer.verification.progress", "item=$name checkedBytes=$checked expectedBytes=$expectedBytes")
-                            lastLog = now
+                    val digestOutput = object : OutputStream() {
+                        override fun write(value: Int) = write(byteArrayOf(value.toByte()), 0, 1)
+                        override fun write(buffer: ByteArray, offset: Int, n: Int) {
+                            hash.update(buffer, offset, n)
+                            checked += n
+                            val now = System.nanoTime()
+                            if (name != null && now - lastReport >= 300_000_000L) { report(); lastReport = now }
+                            if (name != null && now - lastLog >= 5_000_000_000L) {
+                                com.infinifolder.storage.DiagnosticLog.record("transfer.verification.progress", "item=$name checkedBytes=$checked expectedBytes=$expectedBytes")
+                                lastLog = now
+                            }
                         }
                     }
+                    io.github.gretchycat.infinistream.copy(input, digestOutput,
+                        io.github.gretchycat.infinistream.CancellationToken {
+                            if (isCancelled()) true else {
+                                if (allowSkip && !verificationWanted()) throw VerificationSkipped()
+                                false
+                            }
+                        }, bufferSize = 128 * 1024)
                     if (name != null) {
                         report()
                         com.infinifolder.storage.DiagnosticLog.record("transfer.verification.complete", "item=$name checkedBytes=$checked expectedBytes=$expectedBytes")
@@ -873,7 +878,6 @@ object FileOperations {
                     throw IllegalStateException((writeResult as? ProviderResult.Failure)?.message ?: "Failed to open destination for $targetName")
                 }
 
-                val buffer = ByteArray(128 * 1024)
                 val hash = MessageDigest.getInstance("SHA-256")
                 var copiedBytes = directTorrentBytes ?: 0L
                 var sourceBytesRead = directTorrentBytes ?: 0L
@@ -914,32 +918,43 @@ object FileOperations {
                     inputStream.use { input ->
                         outputStream.use { output ->
                             try {
-                            var r = 0
-                            while (directTorrentBytes == null && timeIo("source.read") { input.read(buffer) }.also { r = it } >= 0) {
-                                if (isCancelled()) throw InterruptedException("Transfer cancelled")
-                                sourceBytesRead += r
-                                stage = "checking destination file-size limit"
-                                fileSystem?.requireFileFits(source.metadata.name, copiedBytes + r.toLong())
-                                stage = "writing destination"
-                                output.write(buffer, 0, r)
-                                stage = "reading source"
-                                hash.update(buffer, 0, r)
-                                copiedBytes += r
-                                val logNow = System.nanoTime()
-                                if (logNow - lastTransferLog >= 5_000_000_000L) {
-                                    com.infinifolder.storage.DiagnosticLog.record("transfer.progress", "item=$targetName writtenBytes=$copiedBytes expectedBytes=${transferSize(source)} stage=$stage")
-                                    lastTransferLog = logNow
+                            if (directTorrentBytes == null) {
+                                val measuredInput = object : java.io.FilterInputStream(input) {
+                                    override fun read(bytes: ByteArray, offset: Int, length: Int): Int =
+                                        timeIo("source.read") { super.read(bytes, offset, length) }.also {
+                                            if (it > 0) sourceBytesRead += it
+                                        }
                                 }
-                                activeFileBytes = copiedBytes
-                                transferredBytes += r
-                                bytesSinceLast += r
-                                val now = System.currentTimeMillis()
-                                if (copiedBytes == r.toLong() || now - lastRateTime >= 300) {
-                                    val speed = (bytesSinceLast * 1000) / (now - lastRateTime).coerceAtLeast(1)
-                                    lastRateTime = now
-                                    bytesSinceLast = 0L
-                                    reportProgress(targetName, speed)
+                                val accountedOutput = object : OutputStream() {
+                                    override fun write(value: Int) = write(byteArrayOf(value.toByte()), 0, 1)
+                                    override fun write(buffer: ByteArray, offset: Int, r: Int) {
+                                        stage = "checking destination file-size limit"
+                                        fileSystem?.requireFileFits(source.metadata.name, copiedBytes + r.toLong())
+                                        stage = "writing destination"
+                                        output.write(buffer, offset, r)
+                                        stage = "reading source"
+                                        hash.update(buffer, offset, r)
+                                        copiedBytes += r
+                                        val logNow = System.nanoTime()
+                                        if (logNow - lastTransferLog >= 5_000_000_000L) {
+                                            com.infinifolder.storage.DiagnosticLog.record("transfer.progress", "item=$targetName writtenBytes=$copiedBytes expectedBytes=${transferSize(source)} stage=$stage")
+                                            lastTransferLog = logNow
+                                        }
+                                        activeFileBytes = copiedBytes
+                                        transferredBytes += r
+                                        bytesSinceLast += r
+                                        val now = System.currentTimeMillis()
+                                        if (copiedBytes == r.toLong() || now - lastRateTime >= 300) {
+                                            val speed = (bytesSinceLast * 1000) / (now - lastRateTime).coerceAtLeast(1)
+                                            lastRateTime = now
+                                            bytesSinceLast = 0L
+                                            reportProgress(targetName, speed)
+                                        }
+                                    }
                                 }
+                                io.github.gretchycat.infinistream.copy(measuredInput, accountedOutput,
+                                    io.github.gretchycat.infinistream.CancellationToken { isCancelled() },
+                                    bufferSize = 128 * 1024)
                             }
                             sourceReadComplete = transferSize(source)?.let { it == copiedBytes } ?: true
                             com.infinifolder.storage.DiagnosticLog.record("transfer.data-written", "item=$targetName bytes=$copiedBytes expectedBytes=${transferSize(source)}")

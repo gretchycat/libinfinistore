@@ -43,7 +43,7 @@ object SaveRecovery {
 
     fun restore(provider: StorageProvider, record: Record, expectedCurrent: ContentRevision, root: File): ProviderResult<Unit> {
         if (record.original.inputStream().use(ContentRevision::read) != record.revision) return ProviderResult.Failure("Recovery copy failed verification")
-        val result = ContentReplacement.replace(provider, record.ref, record.original.readBytes(), root, expectedCurrent)
+        val result = ContentReplacement.replaceFromFile(provider, record.ref, record.original, root, expectedCurrent)
         if (result is ProviderResult.Success) record.directory.deleteRecursively()
         return result
     }

@@ -216,14 +216,11 @@ class DiskCache private constructor(context: Context) {
         val lease = allocate(name, expectedBytes)
         try {
             input().use { source -> lease.output().use { target ->
-                val buffer = ByteArray(128 * 1024)
-                while (true) {
-                    com.infinifolder.archive.RecoveryCancellation.check()
-                    if (Thread.currentThread().isInterrupted) throw java.io.InterruptedIOException("Caching cancelled")
-                    val count = source.read(buffer)
-                    if (count < 0) break
-                    target.write(buffer, 0, count)
-                }
+                io.github.gretchycat.infinistream.copy(source, target,
+                    io.github.gretchycat.infinistream.CancellationToken {
+                        com.infinifolder.archive.RecoveryCancellation.check()
+                        false
+                    }, bufferSize = 128 * 1024)
             } }
             if (expectedBytes != null && lease.file.length() != expectedBytes) throw IOException("Source length changed while caching")
             lease.complete(key)

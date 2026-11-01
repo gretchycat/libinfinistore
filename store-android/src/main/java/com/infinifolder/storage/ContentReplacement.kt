@@ -3,7 +3,6 @@ package com.infinifolder.storage
 import com.infinifolder.model.*
 import java.io.File
 import java.io.IOException
-import java.security.MessageDigest
 import java.util.Properties
 import java.util.UUID
 
@@ -23,7 +22,7 @@ object ContentReplacement {
         }
         val expected = file.inputStream().use(ContentRevision::read)
         replaceWith(provider, ref, recoveryRoot, expectedRevision, expected,
-            { provider.replaceContentFromFile(ref, file) }, { output -> file.inputStream().use { it.copyTo(output) } }, preCommitCheck)
+            { provider.replaceContentFromFile(ref, file) }, { output -> file.inputStream().use { io.github.gretchycat.infinistream.copy(it, output) } }, preCommitCheck)
     } catch (e: Exception) { ProviderResult.Failure(e.message ?: "Cannot prepare replacement", e) }
 
     @Synchronized private fun replaceWith(provider: StorageProvider, ref: ResourceRef, recoveryRoot: File,
@@ -53,13 +52,15 @@ object ContentReplacement {
                 throw IOException("Not enough space to preserve the original container for recovery. Original retained.")
             openRead(provider, ref).use { input ->
                 original.outputStream().use { output ->
-                    val buffer = ByteArray(128 * 1024)
-                    while (true) {
-                        val n = input.read(buffer); if (n < 0) break
-                        if (session.usableSpace < n.toLong() + 1024 * 1024)
-                            throw IOException("Not enough space for the original container recovery copy. Original retained.")
-                        output.write(buffer, 0, n)
+                    val guarded = object : java.io.OutputStream() {
+                        override fun write(value: Int) = write(byteArrayOf(value.toByte()), 0, 1)
+                        override fun write(buffer: ByteArray, offset: Int, length: Int) {
+                            if (session.usableSpace < length.toLong() + 1024 * 1024)
+                                throw IOException("Not enough space for the original container recovery copy. Original retained.")
+                            output.write(buffer, offset, length)
+                        }
                     }
+                    io.github.gretchycat.infinistream.copy(input, guarded, bufferSize = 128 * 1024)
                     output.fd.sync()
                 }
             }
@@ -83,12 +84,21 @@ object ContentReplacement {
                 session.deleteRecursively()
                 ProviderResult.Failure(e.message ?: "Cannot preserve original", e)
             } else {
-                val restored = runCatching {
-                    original.inputStream().use { input -> openWrite(provider, ref).use { output -> input.copyTo(output); output.flush() } }
-                    val expected = original.inputStream().use { hash(it) }
-                    check(openRead(provider, ref).use { hash(it) }.contentEquals(expected))
-                }.isSuccess
-                runCatching { SaveRecovery.record(session, ref, if (restored) "restored" else "interrupted", original.inputStream().use(ContentRevision::read)) }
+                // Rollback is safety work, even when the requested save was cancelled.
+                // The common copy/fingerprint primitives honor thread interruption, so
+                // defer that signal while restoring and recording the preserved original.
+                val interrupted = Thread.interrupted()
+                val restored: Boolean
+                try {
+                    restored = runCatching {
+                        original.inputStream().use { input -> openWrite(provider, ref).use { output ->
+                            io.github.gretchycat.infinistream.copy(input, output); output.flush()
+                        } }
+                        val expected = original.inputStream().use(ContentRevision::read)
+                        check(openRead(provider, ref).use(ContentRevision::read) == expected)
+                    }.isSuccess
+                    runCatching { SaveRecovery.record(session, ref, if (restored) "restored" else "interrupted", original.inputStream().use(ContentRevision::read)) }
+                } finally { if (interrupted) Thread.currentThread().interrupt() }
                 ProviderResult.Failure("Save failed. " + (if (restored) "Original restored. " else "Original could not be restored. ") +
                     "Recovery copy retained at ${original.absolutePath}: ${e.message}", e)
             }
@@ -104,15 +114,5 @@ object ContentReplacement {
         is ProviderResult.Success -> result.value
         is ProviderResult.Failure -> throw IOException(result.message, result.cause)
         is ProviderResult.Unsupported -> throw IOException("Resource is read-only")
-    }
-    private fun hash(input: java.io.InputStream): ByteArray {
-        val digest = MessageDigest.getInstance("SHA-256")
-        val buffer = ByteArray(64 * 1024)
-        while (true) {
-            val n = input.read(buffer)
-            if (n < 0) break
-            digest.update(buffer, 0, n)
-        }
-        return digest.digest()
     }
 }
