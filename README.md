@@ -44,3 +44,9 @@ compatibility edges; their owning callers still close/flush them. Cancellation o
 replacement does not cancel its immediate rollback: restoration and durable recovery
 recording run with an existing interrupt deferred, then reinstate that signal.
 Recovery restoration publishes from the preserved file without a full-backup RAM copy.
+
+Ringtone MIME/signature routing covers MMF/SMAF, GP3 score headers and 3GPP media
+brands. DOS description/art extensions have explicit text mappings; local shared
+content types use the same registry. Repeated valid ANSI CSI controls can identify
+ANSI art independently of the filename. Visual preview MIME does not require a
+host to open text as a bitmap.

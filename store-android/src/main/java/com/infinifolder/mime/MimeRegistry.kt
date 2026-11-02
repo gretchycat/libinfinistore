@@ -29,7 +29,7 @@ object MimeRegistry {
         "application/x-gzip" to "application/gzip", "text/xml" to "application/xml", "text/x-markdown" to "text/markdown")
     private val extensions = mapOf(
         "incomplete" to "application/vnd.infinifolder.torrent-partial",
-        "txt" to "text/plain", "log" to "text/plain", "cfg" to "text/plain", "conf" to "text/plain", "ini" to "text/plain", "properties" to "text/plain",
+        "diz" to "text/plain", "asc" to "text/plain", "nfo" to "text/plain", "ansi" to "image/x-ansi", "txt" to "text/plain", "log" to "text/plain", "cfg" to "text/plain", "conf" to "text/plain", "ini" to "text/plain", "properties" to "text/plain",
         "md" to "text/markdown", "markdown" to "text/markdown", "mdown" to "text/markdown", "mkd" to "text/markdown", "mkdn" to "text/markdown",
         "csv" to "text/csv", "tsv" to "text/tab-separated-values", "html" to "text/html", "htm" to "text/html", "xhtml" to "application/xhtml+xml",
         "xml" to "application/xml", "json" to "application/json", "yaml" to "application/yaml", "yml" to "application/yaml",
@@ -64,6 +64,7 @@ object MimeRegistry {
         "w64" to "audio/x-wave64", "rf64" to "audio/x-rf64", "caf" to "audio/x-caf",
         "avr" to "audio/x-avr", "ircam" to "audio/x-ircam", "sph" to "audio/x-nist-sphere", "pvf" to "audio/x-pvf", "wve" to "audio/x-wve", "htk" to "audio/x-htk",
         "adx" to "audio/x-adx", "amr" to "audio/amr", "awb" to "audio/amr-wb", "gsm" to "audio/x-gsm", "g722" to "audio/x-g722",
+        "mmf" to "application/vnd.smaf", "smaf" to "application/vnd.smaf", "gp3" to "application/x-guitar-pro",
         "mid" to "audio/midi", "midi" to "audio/midi", "kar" to "audio/midi", "rmi" to "audio/midi",
         "sf2" to "audio/x-soundfont", "sfz" to "audio/x-sfz", "pat" to "audio/x-gus-patch",
         "mod" to "audio/x-mod", "s3m" to "audio/x-s3m", "xm" to "audio/x-xm", "it" to "audio/x-it",
@@ -73,6 +74,7 @@ object MimeRegistry {
         "mlp" to "audio/x-mlp", "thd" to "audio/x-truehd", "cdda" to "audio/x-cdda",
         "m3u" to "audio/x-mpegurl", "m3u8" to "audio/x-mpegurl", "pls" to "audio/x-scpls", "xspf" to "application/xspf+xml", "cue" to "application/x-cue",
         "rm" to "application/vnd.rn-realmedia", "rmvb" to "application/vnd.rn-realmedia-vbr",
+        "3gp" to "video/3gpp", "3gpp" to "video/3gpp", "3g2" to "video/3gpp2",
         "mp4" to "video/mp4", "mkv" to "video/x-matroska", "webm" to "video/webm",
         "zip" to "application/zip", "cbz" to "application/zip", "tar" to "application/x-tar", "cbt" to "application/x-tar", "gz" to "application/gzip", "tgz" to "application/gzip",
         "bz2" to "application/x-bzip2", "tbz" to "application/x-bzip2", "tbz2" to "application/x-bzip2", "xz" to "application/x-xz", "txz" to "application/x-xz",
@@ -129,6 +131,7 @@ object MimeRegistry {
         "application/x-love-game" -> "🎮"
         "application/java-archive" -> "☕"
         "application/epub+zip" -> "📖"
+        "application/vnd.smaf", "application/x-smaf", "application/x-guitar-pro", "application/x-gtp" -> "♫"
         "application/pdf" -> "▤"
         "text/csv", "text/tab-separated-values" -> "▦"
         else -> when {
@@ -148,6 +151,7 @@ object MimeRegistry {
             mime == "application/vnd.android.package-archive" -> candidates.addAll(listOf("android-package-archive", "package-x-apk", "package-x-generic"))
             mime == "application/java-archive" -> candidates.addAll(listOf("application-x-java-archive", "java", "package-x-generic"))
             mime == "application/x-love-game" -> candidates.addAll(listOf("love", "package-x-generic"))
+            mime in setOf("application/vnd.smaf", "application/x-smaf", "application/x-guitar-pro", "application/x-gtp") -> candidates.add("audio-x-generic")
             mime == "application/pdf" -> candidates.add("application-pdf")
             mime.contains("wordprocessingml") || mime == "application/vnd.oasis.opendocument.text" -> candidates.add("x-office-document")
             mime.contains("spreadsheet") -> candidates.add("x-office-spreadsheet")

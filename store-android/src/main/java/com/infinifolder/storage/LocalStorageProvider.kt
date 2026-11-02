@@ -7,7 +7,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.DocumentsContract
-import android.webkit.MimeTypeMap
 import androidx.core.content.FileProvider
 import com.infinifolder.model.*
 import java.io.File
@@ -67,9 +66,7 @@ class SharedFileProvider : FileProvider() {
         if (file != null && file.exists()) {
             val pkgMime = com.infinifolder.archive.ArchiveFormats.packageMimeType(file.name)
             if (pkgMime != null) return pkgMime
-            val ext = file.extension.lowercase()
-            val extMime = MimeTypeMap.getSingleton()?.getMimeTypeFromExtension(ext)
-                ?: com.infinifolder.archive.ArchiveMimeTypes.guessMimeType(file.name, false)
+            val extMime = com.infinifolder.mime.MimeRegistry.guess(file.name)
             if (FileMagicDetector.isAmbiguousOrUnknown(file.name, extMime)) {
                 return FileMagicDetector.detect(file)?.mimeType ?: extMime
             }

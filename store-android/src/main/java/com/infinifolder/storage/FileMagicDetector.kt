@@ -192,6 +192,14 @@ object FileMagicDetector {
         ufsMagicAtSuperblock: Int? = null
     ): FileMagicResult? {
         if (header.isEmpty()) return null
+        if (header.size >= 16 && String(header, 0, 4, StandardCharsets.US_ASCII) == "MMMD") {
+            val size = (4..7).fold(0L) { n, i -> (n shl 8) or u8(header,i).toLong() }
+            if (size >= 8) return FileMagicResult("application/vnd.smaf", "Yamaha SMAF Ringtone")
+        }
+        val guitarPro3Version = "FICHIER GUITAR PRO v3.00"
+        if (header.size >= 31 && u8(header,0) == guitarPro3Version.length &&
+            String(header,1,guitarPro3Version.length,StandardCharsets.US_ASCII) == guitarPro3Version)
+            return FileMagicResult("application/x-guitar-pro", "Guitar Pro 3 Score")
         if (header.size >= 4 && String(header, 0, 4, StandardCharsets.US_ASCII) == "MSCF")
             return FileMagicResult("application/vnd.ms-cab-compressed", "Microsoft Cabinet Archive", true)
         if (header.size >= 4 && header[0] == 0x60.toByte() && header[1] == 0xea.toByte())
@@ -583,7 +591,11 @@ object FileMagicDetector {
         // MP4 / M4A / MOV ("ftyp" at offset 4)
         if (header.size >= 12 && String(header, 4, 4, StandardCharsets.US_ASCII) == "ftyp") {
             val brand = String(header, 8, 4, StandardCharsets.US_ASCII)
-            return if (brand == "M4A " || brand == "M4B ") {
+            return if (brand.startsWith("3gp") || brand.startsWith("3gr") || brand.startsWith("3gs")) {
+                FileMagicResult("video/3gpp", "3GPP Media ($brand)")
+            } else if (brand.startsWith("3g2")) {
+                FileMagicResult("video/3gpp2", "3GPP2 Media ($brand)")
+            } else if (brand == "M4A " || brand == "M4B ") {
                 FileMagicResult("audio/mp4", "MPEG-4 Audio ($brand)")
             } else {
                 FileMagicResult("video/mp4", "MPEG-4 Video ($brand)")
@@ -734,6 +746,9 @@ object FileMagicDetector {
         }
         if (controlCount * 20 > sampleLen) return null // > 5% non-whitespace control chars
 
+        val terminalSample = String(header, 0, sampleLen, StandardCharsets.ISO_8859_1)
+        val ansiControls = Regex("\u001b\\[[0-?]*[ -/]*[@-~]").findAll(terminalSample).take(2).count()
+        if (ansiControls >= 2) return FileMagicResult("image/x-ansi", "ANSI Text Art")
         val text = String(header, 0, sampleLen, StandardCharsets.UTF_8).trimStart('\uFEFF').trimStart()
         if (text.startsWith("#!")) {
             val shebang = text.lineSequence().firstOrNull()?.take(48) ?: "#!"
