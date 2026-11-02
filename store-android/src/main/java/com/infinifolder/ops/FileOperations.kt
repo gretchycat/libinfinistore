@@ -130,9 +130,18 @@ object FileOperations {
             !com.infinifolder.archive.ArchiveUri.isArchiveUri(destinationFolderUri) &&
             entries.none { it.metadata.recoveryNote != null || provider.recoverySource(it.ref) != null }
         com.infinifolder.archive.ReadDeviceScope.withScope(reuseReads, onWarning) {
-        batchTransferInternal(entries, destinationFolderUri, move, provider, resourceRef, update,
-            { isCancelled() || Thread.currentThread().isInterrupted }, createLinks, onWarning, partialRecovery, verifyCopies, copyVerificationEnabled,
-            confirmRandomAccessFallback)
+            try {
+                batchTransferInternal(entries, destinationFolderUri, move, provider, resourceRef, update,
+                    { isCancelled() || Thread.currentThread().isInterrupted }, createLinks, onWarning, partialRecovery, verifyCopies, copyVerificationEnabled,
+                    confirmRandomAccessFallback)
+            } catch (e: java.io.InterruptedIOException) {
+                // Stream copying reports cancellation as InterruptedIOException. Keep the
+                // batch API's cancellation contract after its normal cleanup has run;
+                // unrelated interrupted I/O (including socket timeouts) stays an I/O failure.
+                if (isCancelled() || Thread.currentThread().isInterrupted)
+                    throw InterruptedException(e.message ?: "Transfer cancelled").apply { initCause(e) }
+                throw e
+            }
         }
     }
 
