@@ -35,7 +35,7 @@ object MimeRegistry {
         "xml" to "application/xml", "json" to "application/json", "yaml" to "application/yaml", "yml" to "application/yaml",
         "ts" to "text/typescript", "sh" to "application/x-sh", "py" to "text/x-python", "kt" to "text/x-kotlin", "kts" to "text/x-kotlin", "lua" to "text/x-lua", "js" to "application/javascript",
         "doc" to "application/msword", "pdf" to "application/pdf", "png" to "image/png", "apng" to "image/apng", "jpg" to "image/jpeg", "jpeg" to "image/jpeg", "jpe" to "image/jpeg", "jfif" to "image/jpeg", "gif" to "image/gif", "webp" to "image/webp",
-        "svg" to "image/svg+xml", "svgz" to "image/svg+xml", "bmp" to "image/bmp", "dib" to "image/bmp", "wbmp" to "image/vnd.wap.wbmp", "ico" to "image/x-icon", "cur" to "image/x-win-bitmap",
+        "rip" to "image/x-rip", "svg" to "image/svg+xml", "svgz" to "image/svg+xml", "bmp" to "image/bmp", "dib" to "image/bmp", "wbmp" to "image/vnd.wap.wbmp", "ico" to "image/x-icon", "cur" to "image/x-win-bitmap",
         "jxl" to "image/jxl", "jp2" to "image/jp2", "j2k" to "image/jp2", "jpf" to "image/jpx", "jpx" to "image/jpx", "j2c" to "image/jp2",
         "tga" to "image/x-tga", "icb" to "image/x-tga", "vda" to "image/x-tga", "vst" to "image/x-tga",
         "avif" to "image/avif", "avifs" to "image/avif", "heic" to "image/heic", "heif" to "image/heif", "heics" to "image/heic", "heifs" to "image/heif", "hif" to "image/heif",

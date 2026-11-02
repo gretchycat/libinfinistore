@@ -58,3 +58,7 @@ text MIME aliases also try `text-x-generic` in icon themes.
 `MimeRegistry.associations()` exposes a canonical immutable snapshot of seed
 extension associations for host-owned editable registries. User edits and icon
 policy stay in the host; existing MIME lookup contracts are unchanged.
+
+RIPscrip `.rip` graphics have the explicit `image/x-rip` association. Bounded text
+magic recognizes strong RIP command prefixes; Canvas owns rendering and the host
+chooses EGA/high-resolution presentation.

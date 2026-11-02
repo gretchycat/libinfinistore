@@ -747,6 +747,8 @@ object FileMagicDetector {
         if (controlCount * 20 > sampleLen) return null // > 5% non-whitespace control chars
 
         val terminalSample = String(header, 0, sampleLen, StandardCharsets.ISO_8859_1)
+        if (Regex("(?m)^!\\|(?:\\*|c[0-9A-Z]{1,2}(?:\\||$)|[LRB][0-9A-Z]{8}(?:\\||$))").containsMatchIn(terminalSample))
+            return FileMagicResult("image/x-rip", "RIPscrip Graphics")
         val ansiControls = Regex("\u001b\\[[0-?]*[ -/]*[@-~]").findAll(terminalSample).take(2).count()
         if (ansiControls >= 2) return FileMagicResult("image/x-ansi", "ANSI Text Art")
         val text = String(header, 0, sampleLen, StandardCharsets.UTF_8).trimStart('\uFEFF').trimStart()
