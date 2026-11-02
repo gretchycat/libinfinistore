@@ -39,7 +39,9 @@ data class OperationUpdate(
     val warningCount: Int = 0,
     val destination: String? = null,
     val torrentStats: com.infinifolder.storage.TorrentTransferStats? = null,
-    val resumeDestination: com.infinifolder.model.ResourceRef? = null
+    val resumeDestination: com.infinifolder.model.ResourceRef? = null,
+    /** Host/engine handshake: cancellation must win before the transfer crosses its final commit. */
+    val cancellationCommitted: Boolean = false
 )
 
 data class OperationSnapshot(
@@ -72,8 +74,16 @@ data class OperationSnapshot(
     val restartTransfer: TransferRestartRequest? = null,
     val pausedByUser: Boolean = false,
     /** Restored status history must not trigger another completion notification. */
-    val restoredFromHistory: Boolean = false
+    val restoredFromHistory: Boolean = false,
+    val cancellationRequested: Boolean = false,
+    val cancellationCommitted: Boolean = false
 ) {
+    val undoableTransfer: Boolean get() = restartTransfer?.let { request ->
+        !request.createLinks && !request.partialRecovery && request.entries.any {
+            it.ref.providerId !in setOf("torrent", "apps") && it.metadata.recoveryNote == null
+        }
+    } == true
+
     /** Overall totals stay visible during per-file preparation/verification phases. */
     val overallProgressPercent: Int
         get() = when {
@@ -278,7 +288,10 @@ class OperationCoordinator(
                 update(id) { it.copy(state = OperationState.RUNNING, message = "Starting…") }
                 work({ u ->
                     update(id) {
+                        if (u.cancellationCommitted && token.get() && it.undoableTransfer)
+                            throw InterruptedException("Transfer cancelled before final commit")
                         it.copy(
+                            cancellationCommitted = it.cancellationCommitted || u.cancellationCommitted,
                             destination = u.destination ?: it.destination,
                             torrentStats = u.torrentStats,
                             resumeDestination = u.resumeDestination,
@@ -303,13 +316,15 @@ class OperationCoordinator(
                 update(id) { it.copy(state = if (token.get()) OperationState.CANCELLED else OperationState.COMPLETE, indeterminate = false,
                     message = if (token.get()) { if (it.pausedByUser) "Paused; download retained" else "Cancelled" } else if (it.warningCount > 0) "Completed with ${it.warningCount} warnings" else "Completed") }
             } catch (e: Exception) {
-                val stopped = token.get() || e is OperationDeclinedException
+                val stopped = e !is TransferRollbackException && (token.get() || e is OperationDeclinedException)
                 com.infinifolder.storage.DiagnosticLog.record(if (stopped) "operation.cancelled" else "operation.failed", label, e)
                 update(id) {
                     it.copy(
                         state = if (stopped) OperationState.CANCELLED else OperationState.FAILED,
                         indeterminate = false,
-                        message = if (e is OperationDeclinedException) e.message else if (token.get()) { if (it.pausedByUser) "Paused; download retained" else "Cancelled" } else failureReason(e)
+                        message = if (e is OperationDeclinedException || e is TransferCancelledException) e.message
+                            else if (e is TransferRollbackException) e.message
+                            else if (token.get()) { if (it.pausedByUser) "Paused; download retained" else "Cancelled" } else failureReason(e)
                     )
                 }
             } finally { heldLocks.asReversed().forEach { it.unlock() } }
@@ -329,15 +344,18 @@ class OperationCoordinator(
 
     @Synchronized fun cancel(id: String, reason: String = "unspecified", pause: Boolean? = null) {
         val before = records[id]
-        if (before == null || before.state !in setOf(OperationState.RUNNING, OperationState.QUEUED)) return
+        if (before == null || before.state !in setOf(OperationState.RUNNING, OperationState.QUEUED) ||
+            before.cancellationCommitted || before.cancellationRequested) return
         val pausing = (pause ?: before.canFinishLater) && before.canFinishLater
         com.infinifolder.storage.DiagnosticLog.record(
             "operation.cancel.requested",
             "id=$id label=${before?.label ?: "unknown"} state=${before?.state ?: "unknown"} reason=$reason thread=${Thread.currentThread().name}"
         )
         cancelled[id]?.set(true)
-        update(id) { it.copy(state = OperationState.CANCELLED, pausedByUser = pausing,
-            message = if (pausing) "Paused; download retained" else "Cancelled") }
+        val undoing = before.undoableTransfer && before.state == OperationState.RUNNING
+        update(id) { it.copy(state = if (undoing) OperationState.RUNNING else OperationState.CANCELLED,
+            cancellationRequested = true, pausedByUser = pausing,
+            message = if (undoing) "Cancelling; undoing transfer changes…" else if (pausing) "Paused; download retained" else "Cancelled") }
         futures[id]?.cancel(true)
         onCancelExternal?.invoke(id)
     }

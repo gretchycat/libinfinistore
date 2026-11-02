@@ -301,6 +301,14 @@ object FileOperations {
         }
         val transferEntries = timed("Checking source folders") { entries.mapNotNull { currentSourceRoot = it.ref; scan(it) } }
         if (move) {
+            val selected = transferEntries.map { it.ref }.toSet()
+            fun selectedDescendant(entry: ResourceEntry): Boolean = sourceChildren[entry.ref].orEmpty().any {
+                it.ref in selected || selectedDescendant(it)
+            }
+            if (selected.size != transferEntries.size || transferEntries.any(::selectedDescendant))
+                throw IOException("Select each move source once, without also selecting its descendants; sources retained")
+        }
+        if (move) {
             fun containsSource(ref: ResourceRef, target: ResourceRef, visited: MutableSet<ResourceRef>): Boolean {
                 if (ref == target) return true
                 if (!visited.add(ref)) return false
@@ -408,6 +416,10 @@ object FileOperations {
             is ProviderResult.Unsupported -> null
             is ProviderResult.Failure -> throw IOException(result.message, result.cause)
         }
+        var published = false
+        val undo = TransferUndoJournal(provider, { if (published) provider else activeProvider }, move,
+            transferEntries.filter { !createLinks && !partialRecovery && it.ref.providerId !in setOf("torrent", "apps") &&
+                it.metadata.recoveryNote == null && provider.recoverySource(it.ref) == null })
         try {
             if (batch != null) {
                 activeProvider = batch.provider
@@ -468,6 +480,8 @@ object FileOperations {
                         else entry.metadata.sizeBytes?.coerceAtLeast(0L) ?: 0L
                         totalBytes = transferEntries.fold(0L) { sum, entry -> Math.addExact(sum, logicalBytes(entry)) }
                         if (isCancelled()) throw InterruptedException("Move cancelled before container publication")
+                        update(OperationUpdate(message = "Finishing move…", cancellationCommitted = true))
+                        if (isCancelled()) throw InterruptedException("Move cancelled before container publication")
                         timed("Publishing relocated container entries") { batch.commit() }
                         update(OperationUpdate(bytes = totalBytes ?: 0L, totalBytes = totalBytes,
                             itemsProcessed = transferEntries.size, totalItems = totalItems,
@@ -486,6 +500,7 @@ object FileOperations {
             if (requiresNativeLinkPreservation)
                 throw IOException("This move requires native link preservation; the destination cannot relocate this selection. Sources retained.")
 
+            undo.prepareMoves()
             val metadataWarnings = mutableSetOf<String>()
             val capturedMetadata = mutableMapOf<ResourceRef, TransferMetadata>()
             fun metadataWarning(source: ResourceEntry, reason: String) {
@@ -727,6 +742,7 @@ object FileOperations {
                     throw IllegalStateException((createResult as? ProviderResult.Failure)?.message ?: "Failed to create $targetName")
                 }
                 var createdEntry = createResult.value
+                if (!torrentDownload) undo.created(source, createdEntry, destParentRef, transferMetadata)
                 destinationNames.getValue(destParentRef).add(createdEntry.metadata.name.lowercase(java.util.Locale.ROOT))
                 resumeRouter?.rememberResumeDestination(source.ref, destParentRef, requestedName, createdEntry.ref, targetName)
                 if (torrentDownload) activeResumeDestination = createdEntry.ref
@@ -890,6 +906,7 @@ object FileOperations {
                 val hash = MessageDigest.getInstance("SHA-256")
                 var copiedBytes = directTorrentBytes ?: 0L
                 var sourceBytesRead = directTorrentBytes ?: 0L
+                var writtenHash: ByteArray? = null
                 var sourceReadComplete = directTorrentBytes != null
                 var lastTransferLog = System.nanoTime()
                 com.infinifolder.storage.DiagnosticLog.record("transfer.start",
@@ -982,7 +999,8 @@ object FileOperations {
                     if (transferSize(source) != null && copiedBytes != transferSize(source)) {
                         throw SourceReadException("Source size changed or read was incomplete; original retained")
                     }
-                    val expected = if (directTorrentBytes != null) ByteArray(0) else hash.digest()
+                    val expected = (if (directTorrentBytes != null) ByteArray(0) else hash.digest()).also { writtenHash = it }
+                    undo.written(source.ref, expected, copiedBytes)
                     val requiredVerification = move || recoveryReport != null ||
                         source.metadata.recoveryNote != null || activeProvider.recoverySource(source.ref) != null
                     val actual = if (requiredVerification || verificationWanted()) {
@@ -1030,6 +1048,7 @@ object FileOperations {
                         onWarning(warning)
                     }
                 } catch (e: Exception) {
+                    if (writtenHash == null) undo.written(source.ref, hash.digest(), copiedBytes)
                     val companionCleanup = companionRef?.let { ref -> try { activeProvider.delete(ref) }
                         catch (cleanup: Exception) { ProviderResult.Failure(cleanup.message ?: "Recovery report cleanup failed", cleanup) } }
                     val timeout = generateSequence<Throwable>(e) { it.cause }.take(16).any { it is java.net.SocketTimeoutException }
@@ -1085,6 +1104,7 @@ object FileOperations {
                     clearPieceState = directTorrentBytes != null
                 )
                 preserveMetadata(source, createdEntry.ref, transferMetadata)
+                undo.seal(source.ref)
                 return createdEntry
             }
 
@@ -1107,6 +1127,7 @@ object FileOperations {
                 if (result is ProviderResult.Success) {
                     resumeRouter?.rememberResumeDestination(source.ref, parent, source.metadata.name, result.value.ref, name)
                     deferTorrentResumeCleanup(resumeRouter, source.ref, parent, source.metadata.name)
+                    undo.created(source, result.value, parent, capturedMetadata[source.ref])
                     destinationNames.getValue(parent).add(result.value.metadata.name.lowercase(java.util.Locale.ROOT))
                     destinationNames[result.value.ref] = if (resumed != null) timed("Checking resumed folder", name) {
                         StorageSafety.complete(activeProvider.list(result.value.ref))
@@ -1243,7 +1264,7 @@ object FileOperations {
                     sourceChange(e)?.let { throw it }
                     // Torrent children may contain verified pieces and a persistent
                     // resume map. Keep that subtree so retrying can continue in place.
-                    if (sourceDir.ref.providerId != "torrent") {
+                    if (sourceDir.ref.providerId != "torrent" && !(isCancelled() && undo.ownsCurrent())) {
                         try { activeProvider.delete(createdDir.ref) } catch (_: Exception) {}
                     }
                     throw e
@@ -1252,9 +1273,11 @@ object FileOperations {
             }
 
             val destinations = mutableListOf<ResourceRef>()
+            val originalsToRemove = mutableListOf<ResourceEntry>()
             for (entry in transferEntries) {
                 if (isCancelled()) throw InterruptedException("Transfer cancelled")
                 currentSourceRoot = entry.ref
+                undo.begin(entry)
                 reportProgress(entry.metadata.name, 0L)
                 val copied = if (entry.metadata.isDirectory && !entry.metadata.isSymbolicLink) {
                     copyTreeRecursively(entry, destRef)
@@ -1267,19 +1290,34 @@ object FileOperations {
                     onWarning("Source '${entry.metadata.name}' retained because contents or metadata could not be preserved completely.")
                 }
                 if (move && entry.ref !in incompleteRoots) {
-                    timed("Rechecking source: ${entry.metadata.name}", entry.metadata.name) { verifySource(entry) }
-                    if (isCancelled()) throw InterruptedException("Transfer cancelled")
-                    val removed = timed("Removing verified original: ${entry.metadata.name}", entry.metadata.name) { activeProvider.delete(entry.ref) }
-                    if (removed !is ProviderResult.Success) {
-                        throw IOException("Copy completed, but original removal failed: " +
-                            ((removed as? ProviderResult.Failure)?.message ?: "Delete unsupported"))
-                    }
+                    originalsToRemove += entry
                 }
                 itemsDone++
                 reportProgress(entry.metadata.name, 0L)
             }
             if (isCancelled()) throw InterruptedException("Transfer cancelled before container publication")
-            if (batch != null) timed("Publishing container batch") { batch.commit() }
+            if (batch != null) timed("Publishing container batch") {
+                if (isCancelled()) throw InterruptedException("Transfer cancelled before container publication")
+                published = true // Inspect real storage if publication fails with an uncertain result.
+                batch.commit()
+            }
+            published = true
+            activeProvider = provider
+            // Keep all originals until every copy is complete and destination publication succeeds.
+            for (entry in originalsToRemove) {
+                if (isCancelled()) throw InterruptedException("Move cancelled before original removal")
+                timed("Rechecking source: ${entry.metadata.name}", entry.metadata.name) { verifySource(entry) }
+                if (isCancelled()) throw InterruptedException("Move cancelled before original removal")
+                undo.beforeRemoval(entry)
+                val removed = timed("Removing verified original: ${entry.metadata.name}", entry.metadata.name) { provider.delete(entry.ref) }
+                if (removed !is ProviderResult.Success) throw IOException("Copy completed, but original removal failed: " +
+                    ((removed as? ProviderResult.Failure)?.message ?: "Delete unsupported"))
+            }
+            if (isCancelled()) throw InterruptedException("Transfer cancelled")
+            if (transferEntries.none { it.ref.providerId == "torrent" } && !createLinks && !partialRecovery)
+                update(OperationUpdate(bytes = transferredBytes, totalBytes = totalBytes, itemsProcessed = itemsDone,
+                    totalItems = totalItems, message = "Transfer finished", cancellationCommitted = true))
+            if (isCancelled()) throw InterruptedException("Transfer cancelled")
             pendingTorrentResumeCleanup.values.forEach { cleanup ->
                 cleanup.router.forgetResumeDestination(cleanup.source, cleanup.parent, cleanup.requestedName)
                 if (cleanup.clearPieceState && cleanup.destination != null) {
@@ -1287,6 +1325,20 @@ object FileOperations {
                 }
             }
             return destinations
+        } catch (error: Exception) {
+            if (isCancelled()) {
+                val failures = com.infinifolder.archive.RecoveryCancellation.withoutCancellation {
+                    com.infinifolder.archive.ReadDeviceScope.withScope(false) {
+                        if (batch != null && !published) emptyList() // Closing discards the unpublished private view.
+                        else undo.rollback { message -> update(OperationUpdate(message = message, indeterminate = true)) }
+                    }
+                }
+                if (failures.isNotEmpty()) throw TransferRollbackException(
+                    "Cancellation undo incomplete. " + failures.joinToString("\n"), error)
+                if (transferEntries.none { it.ref.providerId in setOf("torrent", "apps") } && !createLinks && !partialRecovery)
+                    throw TransferCancelledException("Cancelled; ${if (move) "move undone" else "copied changes removed"}", error)
+            }
+            throw error
         } finally { batch?.close() }
     }
 
