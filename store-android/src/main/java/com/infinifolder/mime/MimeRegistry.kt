@@ -79,7 +79,9 @@ object MimeRegistry {
         "zip" to "application/zip", "cbz" to "application/zip", "tar" to "application/x-tar", "cbt" to "application/x-tar", "gz" to "application/gzip", "tgz" to "application/gzip",
         "bz2" to "application/x-bzip2", "tbz" to "application/x-bzip2", "tbz2" to "application/x-bzip2", "xz" to "application/x-xz", "txz" to "application/x-xz",
         "7z" to "application/x-7z-compressed", "cb7" to "application/x-7z-compressed", "cpio" to "application/x-cpio", "ar" to "application/x-archive", "deb" to "application/vnd.debian.binary-package",
-        "iso" to "application/x-iso9660-image", "cdr" to "application/x-iso9660-image", "img" to "application/x-raw-disk-image", "raw" to "application/x-raw-disk-image", "bin" to "application/x-raw-disk-image",
+        // BIN is generic binary data; actual disc/filesystem signatures may refine it.
+        "bin" to "application/octet-stream",
+        "iso" to "application/x-iso9660-image", "cdr" to "application/x-iso9660-image", "img" to "application/x-raw-disk-image", "raw" to "application/x-raw-disk-image",
         "vdi" to "application/x-virtualbox-vdi", "qcow2" to "application/x-qemu-disk", "vmdk" to "application/x-vmdk", "vhd" to "application/x-vhd", "vhdx" to "application/x-vhdx",
         "ufs" to "application/x-raw-disk-image", "ufs1" to "application/x-raw-disk-image", "ufs2" to "application/x-raw-disk-image", "ffs" to "application/x-raw-disk-image",
         "zst" to "application/zstd", "tzst" to "application/zstd",

@@ -59,6 +59,11 @@ text MIME aliases also try `text-x-generic` in icon themes.
 extension associations for host-owned editable registries. User edits and icon
 policy stay in the host; existing MIME lookup contracts are unchanged.
 
+`.bin` defaults to `application/octet-stream`, so arbitrary binary data does not
+inherit optical-disc artwork. Existing bounded magic detection can still identify
+actual disc/filesystem images and other formats. Container probing remains
+available for BIN files; specific user MIME associations remain authoritative.
+
 RIPscrip `.rip` graphics have the explicit `image/x-rip` association. Bounded text
 magic recognizes strong RIP command prefixes; Canvas owns rendering and the host
 chooses EGA/high-resolution presentation.
