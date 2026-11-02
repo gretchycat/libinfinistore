@@ -22,7 +22,6 @@ class SftpBlockDevice(
 
     init { require(initialSize == null || initialSize >= 0L) }
 
-    private var channel: ChannelSftp? = null
     private var closed = false
     private var currentSize: Long = initialSize ?: fetchSize()
     private var readCount = 0L
@@ -60,28 +59,31 @@ class SftpBlockDevice(
         return try {
             // Each range closes early. Large streaming read-ahead queues must
             // otherwise be drained on every close, even for a tiny metadata read.
-            val reader = channel ?: clientPool.openReadChannel(config, credentials, bulkRequests = 1).also { channel = it }
-            stage = "opening-range"
-            val stream = reader.get(remotePath, null, offset)
-            stream.use { inStream ->
-                stage = "reading-range"
-                while (total < toRead) {
-                    if (Thread.currentThread().isInterrupted) throw java.io.InterruptedIOException("SFTP range read interrupted")
-                    val r = inStream.read(buffer, dstOffset + total, toRead - total)
-                    if (r <= 0) break
-                    total += r
+            clientPool.withRangeChannel(config, credentials) { reader ->
+                stage = "opening-range"
+                val stream = object : java.io.FilterInputStream(reader.get(remotePath, null, offset)) {
+                    override fun close() = com.infinifolder.archive.RecoveryCancellation.withoutCancellation { super.close() }
                 }
-                stage = "closing-range"
-                total
-            }.also {
-                readCount++
-                bytesReturned += it
-                val now = android.os.SystemClock.uptimeMillis()
-                if (now - started >= 1000L || now - lastReportMs >= 5000L) {
-                    lastReportMs = now
-                    com.infinifolder.storage.DiagnosticLog.record(
-                        "sftp.range.progress", "reader=${System.identityHashCode(this)} offset=$offset requested=$toRead returned=$it elapsedMs=${now - started} reads=$readCount bytes=$bytesReturned bulkRequests=1"
-                    )
+                stream.use { inStream ->
+                    stage = "reading-range"
+                    while (total < toRead) {
+                        com.infinifolder.archive.RecoveryCancellation.check()
+                        val r = inStream.read(buffer, dstOffset + total, toRead - total)
+                        if (r <= 0) break
+                        total += r
+                    }
+                    stage = "closing-range"
+                    total
+                }.also {
+                    readCount++
+                    bytesReturned += it
+                    val now = android.os.SystemClock.uptimeMillis()
+                    if (now - started >= 1000L || now - lastReportMs >= 5000L) {
+                        lastReportMs = now
+                        com.infinifolder.storage.DiagnosticLog.record(
+                            "sftp.range.progress", "reader=${System.identityHashCode(this)} offset=$offset requested=$toRead returned=$it elapsedMs=${now - started} reads=$readCount bytes=$bytesReturned bulkRequests=1"
+                        )
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -90,8 +92,6 @@ class SftpBlockDevice(
             com.infinifolder.storage.DiagnosticLog.record(
                 "sftp.range.failed", "reader=${System.identityHashCode(this)} stage=$stage offset=$offset requested=$toRead returned=$total elapsedMs=${android.os.SystemClock.uptimeMillis() - started} reads=$readCount bytes=$bytesReturned causes=$causes", e
             )
-            channel?.disconnect()
-            channel = null
             throw IOException("SFTP range read failed during $stage at offset $offset ($toRead bytes): ${e.message}", e)
         }
     }
@@ -138,7 +138,5 @@ class SftpBlockDevice(
 
     @Synchronized override fun close() {
         closed = true
-        channel?.disconnect()
-        channel = null
     }
 }

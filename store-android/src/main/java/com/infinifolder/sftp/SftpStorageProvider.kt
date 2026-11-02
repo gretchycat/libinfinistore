@@ -37,7 +37,7 @@ class SftpStorageProvider(
         is ProviderResult.Success -> try {
             val uri = Uri.parse(ref.documentId)
             val (config, creds) = resolveConfigAndCredentials(SftpUri.getConnectionId(uri))
-            val exclusive = clientPool.withChannel(config, creds) { it.getExtension("hardlink@openssh.com") == "1" }
+            val exclusive = clientPool.withReadChannel(config, creds) { it.getExtension("hardlink@openssh.com") == "1" }
             val meta = result.value.metadata
             ProviderResult.Success(ResourceCapabilities.from(meta, features, overrides = mapOf(
                 ResourceCapability.CREATE to if (meta.isDirectory && meta.canWrite && exclusive) Support.SUPPORTED else Support.UNSUPPORTED,
@@ -56,7 +56,7 @@ class SftpStorageProvider(
         val connId = SftpUri.getConnectionId(uri)
         val path = SftpUri.getRemotePath(uri)
         val (config, creds) = resolveConfigAndCredentials(connId)
-        val target = clientPool.withChannel(config, creds) { it.readlink(path) }
+        val target = clientPool.withReadChannel(config, creds) { it.readlink(path) }
         val resolved = if (target.startsWith('/')) target else path.substringBeforeLast('/', "") + "/" + target
         ProviderResult.Success(ResourceRef(id, SftpUri.build(connId, resolved).toString()))
     } catch (e: Exception) { ProviderResult.Failure(e.message ?: "Cannot resolve native link", e) }
@@ -100,7 +100,7 @@ class SftpStorageProvider(
         val uri = Uri.parse(ref.documentId)
         val (config, creds) = resolveConfigAndCredentials(SftpUri.getConnectionId(uri))
         val path = SftpUri.getRemotePath(uri)
-        val size = clientPool.withChannel(config, creds) { channel ->
+        val size = clientPool.withReadChannel(config, creds) { channel ->
             val attrs = channel.lstat(path)
             if (!attrs.isReg || attrs.isLink) throw IOException("Random-write transfer target must be a regular file")
             attrs.size
@@ -139,7 +139,7 @@ class SftpStorageProvider(
         val remotePath = SftpUri.getRemotePath(uri)
         val (config, creds) = resolveConfigAndCredentials(connId)
 
-        val entries = clientPool.withChannel(config, creds) { channel ->
+        val entries = clientPool.withReadChannel(config, creds) { channel ->
             val list = mutableListOf<ResourceEntry>()
             @Suppress("UNCHECKED_CAST")
             val vector = channel.ls(remotePath) as Vector<ChannelSftp.LsEntry>

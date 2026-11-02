@@ -39,10 +39,13 @@ Winamp `.wsz` skins are classified as ZIP-packaged application resources, even
 with a mismatched provider MIME type. The host owns install/apply actions; Vault
 uses the common container mapping for archive browsing.
 
-SFTP positional reads reopen a disconnected pooled session once when opening a
-range channel. If a metadata operation discovers a dead session, the pool drops
-it so the next operation establishes a fresh connection. A failed retry remains
-an explicit read error; write callbacks are not replayed.
+SFTP positional reads borrow a reusable range channel separately from metadata.
+Independent streams are bounded per session; cancellable channel-open waiters
+close late confirmations. Read-only calls and channel setup can reconnect once,
+including refusal while the session still reports connected. Connected retired
+sessions retain active streams until their owners close them. Failed retries remain
+explicit errors; write callbacks are not replayed. The shared RECONNECTING activity
+signal lets hosts display connection recovery without parsing diagnostic logs.
 
 File-operation transfers, cache staging, revision fingerprints and replacement
 snapshots use Stream's bounded copy contract. Provider stream APIs remain supported

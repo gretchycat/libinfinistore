@@ -9,7 +9,7 @@ import java.util.concurrent.atomic.AtomicLongArray
 
 /** Process-wide activity signals; concurrent work cannot clear another task's light. */
 object StorageActivity {
-    enum class Kind { LOADING, FILE_OPERATION, VERIFICATION }
+    enum class Kind { LOADING, FILE_OPERATION, VERIFICATION, RECONNECTING }
     private val counts = AtomicIntegerArray(Kind.entries.size)
     private val visibleUntil = AtomicLongArray(Kind.entries.size)
     private val listeners = CopyOnWriteArraySet<() -> Unit>()
