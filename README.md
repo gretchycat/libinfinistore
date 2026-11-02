@@ -12,6 +12,12 @@ Original-code licensing is pending owner selection; see LICENSE.md. No original 
 
 ## Current boundary
 
+`AppDocumentSources.getProgramPackage` resolves a document provider's owning
+package from Android's provider metadata, with discovery seeding a memory cache.
+It does not infer package names from authorities or require access to a document
+tree. Hosts can use that package's existing app-icon service for public storage
+entries while retaining access badges for directories awaiting a grant.
+
 `store-android` contains the existing resource/provider contracts and local/SAF/network/torrent implementations, guarded content replacement, cache and transfer operations. It depends only on Stream within the family, never Vault. Playlist-container parsing lives in Vault and delegates to Sound's small API. Generic legacy BlockDevice/cache/cancellation and archive URI/format-hint helpers remain here temporarily to avoid a Store/Vault cycle; reader/parser implementations are in Vault. Host StorageRuntime/RoutingStorageProvider and external-edit orchestration remain in InfiniFolder. Diagnostic publication receives a host-injected provider callback; the library never instantiates that runtime. ProviderStreams/BlockDeviceSource/StreamBlockDevice bridge sequential and positional access without hidden spooling or EOF changes in old APIs.
 
 Protocol dependencies and permissions are preserved. This initial module is Android-specific, not a portable reimplementation of network providers. The next split can separate pure resource types without breaking callers.

@@ -24,6 +24,7 @@ class AppDocumentSources(private val context: Context) {
             "com.android.providers.media.documents", "installed", "category", "package"
         )
         private val programNames = java.util.concurrent.ConcurrentHashMap<String, String>()
+        private val programPackages = java.util.concurrent.ConcurrentHashMap<String, String>()
 
         fun recordProgramName(authority: String, name: String) {
             if (authority.isNotBlank() && name.isNotBlank()) {
@@ -34,12 +35,24 @@ class AppDocumentSources(private val context: Context) {
         fun isAppAuthority(authority: String?): Boolean = authority != null && authority !in systemStorageAuthorities
         fun isAppAuthority(uri: Uri?): Boolean = uri?.scheme == "content" && isAppAuthority(uri.authority)
 
+        /** Resolve the actual provider owner; an authority need not equal its package name. */
+        fun getProgramPackage(context:Context?,authority:String?):String? {
+            if(!isAppAuthority(authority))return null
+            val key=authority ?: return null
+            programPackages[key]?.let {return it}
+            val owner=runCatching {context?.packageManager?.resolveContentProvider(key,0)?.packageName}.getOrNull()
+                ?.takeIf {it.isNotBlank()} ?: return null
+            programPackages[key]=owner
+            return owner
+        }
+
         fun getProgramName(context: Context?, authority: String?): String? {
             if (authority == null) return null
             programNames[authority]?.let { return it }
             val pm = context?.packageManager ?: return null
             val resolved = runCatching {
                 val provider = pm.resolveContentProvider(authority, 0)
+                provider?.packageName?.takeIf {it.isNotBlank()}?.let {programPackages[authority]=it}
                 val appInfo = provider?.applicationInfo ?: provider?.packageName?.let {
                     runCatching { pm.getApplicationInfo(it, 0) }.getOrNull()
                 }
@@ -71,6 +84,7 @@ class AppDocumentSources(private val context: Context) {
                 provider.authority.orEmpty().split(';').filter { it.isNotBlank() && isAppAuthority(it) }.forEach {
                     labels[it] = appLabel
                     recordProgramName(it, appLabel)
+                    programPackages[it]=provider.packageName
                 }
             }
         val grants = resolver.persistedUriPermissions.filter {
