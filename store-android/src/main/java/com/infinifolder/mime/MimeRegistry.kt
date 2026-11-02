@@ -34,7 +34,7 @@ object MimeRegistry {
         "csv" to "text/csv", "tsv" to "text/tab-separated-values", "html" to "text/html", "htm" to "text/html", "xhtml" to "application/xhtml+xml",
         "xml" to "application/xml", "json" to "application/json", "yaml" to "application/yaml", "yml" to "application/yaml",
         "ts" to "text/typescript", "sh" to "application/x-sh", "py" to "text/x-python", "kt" to "text/x-kotlin", "kts" to "text/x-kotlin", "lua" to "text/x-lua", "js" to "application/javascript",
-        "pdf" to "application/pdf", "png" to "image/png", "apng" to "image/apng", "jpg" to "image/jpeg", "jpeg" to "image/jpeg", "jpe" to "image/jpeg", "jfif" to "image/jpeg", "gif" to "image/gif", "webp" to "image/webp",
+        "doc" to "application/msword", "pdf" to "application/pdf", "png" to "image/png", "apng" to "image/apng", "jpg" to "image/jpeg", "jpeg" to "image/jpeg", "jpe" to "image/jpeg", "jfif" to "image/jpeg", "gif" to "image/gif", "webp" to "image/webp",
         "svg" to "image/svg+xml", "svgz" to "image/svg+xml", "bmp" to "image/bmp", "dib" to "image/bmp", "wbmp" to "image/vnd.wap.wbmp", "ico" to "image/x-icon", "cur" to "image/x-win-bitmap",
         "jxl" to "image/jxl", "jp2" to "image/jp2", "j2k" to "image/jp2", "jpf" to "image/jpx", "jpx" to "image/jpx", "j2c" to "image/jp2",
         "tga" to "image/x-tga", "icb" to "image/x-tga", "vda" to "image/x-tga", "vst" to "image/x-tga",
@@ -124,6 +124,14 @@ object MimeRegistry {
         }
         return stated
     }
+    /** Text/source MIME aliases outside the top-level text category. */
+    private fun isTextMime(mime: String): Boolean = mime.startsWith("text/") || mime in setOf(
+        "application/json", "application/ld+json", "application/xml", "application/xhtml+xml",
+        "application/yaml", "application/x-yaml", "application/toml", "application/javascript",
+        "application/ecmascript", "application/x-javascript", "application/x-sh", "application/x-shellscript",
+        "application/x-python", "application/x-perl", "application/x-ruby", "application/sql"
+    ) || mime.endsWith("+json") || mime.endsWith("+xml")
+
     fun fallbackIcon(mimeType: String): String = when (val mime = normalize(mimeType)) {
         "application/vnd.infinifolder.partial-download", "application/vnd.infinifolder.torrent-partial" -> "⬇"
         "vnd.android.document/directory" -> "📁"
@@ -132,15 +140,18 @@ object MimeRegistry {
         "application/java-archive" -> "☕"
         "application/epub+zip" -> "📖"
         "application/vnd.smaf", "application/x-smaf", "application/x-guitar-pro", "application/x-gtp" -> "♫"
-        "application/pdf" -> "▤"
-        "text/csv", "text/tab-separated-values" -> "▦"
+        "application/pdf" -> "📕"
+        "text/csv", "text/tab-separated-values" -> "📊"
         else -> when {
             mime.startsWith("image/") -> "🖼"
             mime.startsWith("audio/") -> "♫"
             mime.startsWith("video/") -> "▶"
-            mime.startsWith("text/") -> "▤"
+            isTextMime(mime) -> "📄"
+            mime == "application/msword" || mime.contains("wordprocessingml") || mime == "application/vnd.oasis.opendocument.text" -> "📝"
+            mime.contains("spreadsheet") || mime == "application/vnd.ms-excel" -> "📊"
+            mime.contains("presentation") || mime == "application/vnd.ms-powerpoint" -> "📽"
             packageFormat("", mime) != null || mime in setOf("application/vnd.ms-cab-compressed", "application/x-cabinet", "application/zstd", "application/vnd.rar", "application/x-rar-compressed", "application/x-arj", "application/zip", "application/x-tar", "application/gzip", "application/x-xz", "application/x-bzip2", "application/x-7z-compressed", "application/x-archive", "application/x-cpio") -> "📦"
-            else -> "▧"
+            else -> "📄"
         }
     }
 
@@ -152,14 +163,15 @@ object MimeRegistry {
             mime == "application/java-archive" -> candidates.addAll(listOf("application-x-java-archive", "java", "package-x-generic"))
             mime == "application/x-love-game" -> candidates.addAll(listOf("love", "package-x-generic"))
             mime in setOf("application/vnd.smaf", "application/x-smaf", "application/x-guitar-pro", "application/x-gtp") -> candidates.add("audio-x-generic")
-            mime == "application/pdf" -> candidates.add("application-pdf")
-            mime.contains("wordprocessingml") || mime == "application/vnd.oasis.opendocument.text" -> candidates.add("x-office-document")
+            mime == "application/pdf" -> candidates.addAll(listOf("application-pdf", "x-office-document"))
+            mime == "application/msword" || mime.contains("wordprocessingml") || mime == "application/vnd.oasis.opendocument.text" -> candidates.add("x-office-document")
             mime.contains("spreadsheet") -> candidates.add("x-office-spreadsheet")
             mime.contains("presentation") -> candidates.add("x-office-presentation")
             mime.contains("disk") || mime.contains("iso9660") || mime.contains("vmdk") -> candidates.addAll(listOf("media-optical", "drive-harddisk"))
             mime in setOf("application/vnd.ms-cab-compressed", "application/x-cabinet", "application/zstd", "application/vnd.rar", "application/x-rar-compressed", "application/x-arj", "application/zip", "application/x-tar", "application/gzip", "application/x-xz", "application/x-bzip2", "application/x-7z-compressed") -> candidates.add("package-x-generic")
         }
         if (packageFormat("", mime) != null) candidates.add("package-x-generic")
+        if (isTextMime(mime)) candidates.add("text-x-generic")
         val category = mime.substringBefore('/')
         if (category in setOf("text", "image", "video", "audio", "font")) candidates.add("$category-x-generic")
         candidates.addAll(listOf("application-octet-stream", "unknown"))

@@ -50,3 +50,7 @@ brands. DOS description/art extensions have explicit text mappings; local shared
 content types use the same registry. Repeated valid ANSI CSI controls can identify
 ANSI art independently of the filename. Visual preview MIME does not require a
 host to open text as a bitmap.
+
+Document icon fallbacks use document symbols for plain/source text, PDF, Word
+and unknown files. Word has an explicit `.doc` MIME mapping; source/application
+text MIME aliases also try `text-x-generic` in icon themes.
