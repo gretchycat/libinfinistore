@@ -54,3 +54,7 @@ host to open text as a bitmap.
 Document icon fallbacks use document symbols for plain/source text, PDF, Word
 and unknown files. Word has an explicit `.doc` MIME mapping; source/application
 text MIME aliases also try `text-x-generic` in icon themes.
+
+`MimeRegistry.associations()` exposes a canonical immutable snapshot of seed
+extension associations for host-owned editable registries. User edits and icon
+policy stay in the host; existing MIME lookup contracts are unchanged.

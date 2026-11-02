@@ -132,6 +132,10 @@ object MimeRegistry {
         "application/x-python", "application/x-perl", "application/x-ruby", "application/sql"
     ) || mime.endsWith("+json") || mime.endsWith("+xml")
 
+    /** Immutable seed associations for editable host registries; aliases remain canonicalized here. */
+    fun associations(): Map<String, String> = extensions.mapValues { normalize(it.value) } +
+        packages.mapValues { normalize(it.value.mime) }
+
     fun fallbackIcon(mimeType: String): String = when (val mime = normalize(mimeType)) {
         "application/vnd.infinifolder.partial-download", "application/vnd.infinifolder.torrent-partial" -> "⬇"
         "vnd.android.document/directory" -> "📁"
