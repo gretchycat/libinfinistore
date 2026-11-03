@@ -22,7 +22,10 @@ class SftpStorageProvider(
     private val connectionLookup: (String) -> ProviderConnection?
 ) : StorageProvider {
 
-    override fun close() { clientPool.close() }
+    override fun close() {
+        try { clientPool.close() } finally { synchronized(remoteSubjects) { remoteSubjects.clear() } }
+    }
+    private val remoteSubjects = java.util.WeakHashMap<ChannelSftp, com.infinifolder.storage.SubjectIdentity>()
     override val id = "sftp"
     override val features = BackendFeatures(Support.SUPPORTED, Support.SUPPORTED, creation = CreationGuarantee.UNKNOWN, rename = Support.UNKNOWN, delete = Support.SUPPORTED, nativeLinks = Support.SUPPORTED,
         transferTarget = Support.SUPPORTED)
@@ -70,10 +73,14 @@ class SftpStorageProvider(
                 null, null, true, operationHints = mapOf(ResourceCapability.DELETE to Support.UNSUPPORTED,
                     ResourceCapability.RENAME to Support.UNSUPPORTED, ResourceCapability.MOVE to Support.UNSUPPORTED)), uri))
         }
-        val parentPath = path.trimEnd('/').substringBeforeLast('/', "").ifEmpty { "/" }
-        val parent = SftpUri.build(SftpUri.getConnectionId(uri), parentPath)
-        val entry = com.infinifolder.storage.StorageSafety.complete(list(ResourceRef(id, parent.toString())))
-            .firstOrNull { it.ref == ref } ?: throw IOException("Resource not found: $path")
+        val connId = SftpUri.getConnectionId(uri)
+        val (config, creds) = resolveConfigAndCredentials(connId)
+        val entry = clientPool.withReadChannel(config, creds) { channel ->
+            // A stat must not enumerate the parent and follow every sibling link.
+            val attrs = channel.lstat(literalPath(path))
+            resourceEntry(connId, channel, path, path.substringAfterLast('/'), attrs,
+                remoteSubject(channel, config)).copy(ref = ref, uri = uri)
+        }
         ProviderResult.Success(entry)
     } catch (e: Exception) { ProviderResult.Failure(e.message ?: "Cannot query remote resource", e) }
     }
@@ -144,100 +151,14 @@ class SftpStorageProvider(
             val list = mutableListOf<ResourceEntry>()
             @Suppress("UNCHECKED_CAST")
             val vector = channel.ls(remotePath) as Vector<ChannelSftp.LsEntry>
-            val remoteSubject = try {
-                val homeAttrs = channel.stat(channel.home)
-                com.infinifolder.storage.SubjectIdentity(
-                    uid = homeAttrs.uId,
-                    username = config.username,
-                    gid = homeAttrs.gId,
-                    isRoot = config.username.equals("root", ignoreCase = true) || homeAttrs.uId == 0
-                )
-            } catch (error: Exception) {
-                if (!optionalMetadataUnavailable(error)) throw error
-                com.infinifolder.storage.SubjectIdentity(
-                    username = config.username,
-                    isRoot = config.username.equals("root", ignoreCase = true)
-                )
-            }
+            val remoteSubject = remoteSubject(channel, config)
 
             for (item in vector) {
                 val filename = item.filename
                 if (filename == "." || filename == "..") continue
 
-                val attrs: SftpATTRS? = item.attrs
-                val isDir = attrs?.isDir ?: false
-                val sizeBytes = if (isDir) null else attrs?.size
-                val mtime = (attrs?.mTime?.toLong() ?: 0L) * 1000L
                 val childRemotePath = if (remotePath == "/") "/$filename" else "$remotePath/$filename"
-                val childUri = SftpUri.build(connId, childRemotePath)
-                val mimeType = if (isDir) "vnd.android.document/directory" else guessMimeType(filename)
-
-                val isLink = attrs?.isLink == true
-                var targetIsDir = isDir
-                var targetSize = sizeBytes
-                var linkTarget: String? = null
-                var isBroken = false
-
-                if (isLink) {
-                    linkTarget = try { channel.readlink(childRemotePath) } catch (error: Exception) {
-                        if (!optionalMetadataUnavailable(error)) throw error
-                        null
-                    }
-                    try {
-                        val statAttrs = channel.stat(childRemotePath)
-                        targetIsDir = statAttrs.isDir
-                        targetSize = if (targetIsDir) null else statAttrs.size
-                    } catch (error: Exception) {
-                        if (!optionalMetadataUnavailable(error)) throw error
-                        isBroken = true
-                    }
-                }
-
-                val finalIsDir = if (isLink && !isBroken) targetIsDir else isDir
-                val finalMime = if (finalIsDir) "vnd.android.document/directory" else guessMimeType(filename)
-
-                val permMode = attrs?.permissions
-                val permString = attrs?.permissionsString
-                val permFormatted = if (permMode != null) {
-                    if (permString != null) "$permString (${String.format("%04o", permMode and 0xFFF)})"
-                    else com.infinifolder.storage.PermissionHelper.formatPosix(permMode, finalIsDir)
-                } else null
-                val (canRead, canWrite, canExec) = if (isBroken) {
-                    Triple(false, false, false)
-                } else if (permMode != null) {
-                    com.infinifolder.storage.PermissionHelper.evaluatePosixPermissions(
-                        mode = permMode,
-                        fileUid = attrs?.uId,
-                        fileGid = attrs?.gId,
-                        subject = remoteSubject
-                    )
-                } else {
-                    Triple(true, true, false)
-                }
-                val owner = attrs?.uId?.takeIf { it >= 0 }?.toString()
-                val group = attrs?.gId?.takeIf { it >= 0 }?.toString()
-
-                list += ResourceEntry(
-                    ref = ResourceRef(id, childUri.toString()),
-                    metadata = ResourceMetadata(
-                        name = filename,
-                        mimeType = finalMime,
-                        sizeBytes = if (finalIsDir) null else (if (isBroken) 0L else targetSize),
-                        modifiedAtMillis = mtime,
-                        isDirectory = finalIsDir,
-                        canRead = canRead,
-                        canWrite = canWrite,
-                        canExecute = canExec,
-                        permissionsMode = permMode,
-                        permissionsFormatted = permFormatted,
-                        owner = owner,
-                        group = group,
-                        isSymbolicLink = isLink,
-                        linkTarget = linkTarget,
-                        isBrokenLink = isBroken
-                    ),
-                    uri = childUri
-                )
+                list += resourceEntry(connId, channel, childRemotePath, filename, item.attrs, remoteSubject)
             }
             list.sortedWith(compareBy({ !it.metadata.isDirectory }, { it.metadata.name.lowercase() }))
         }
@@ -246,12 +167,132 @@ class SftpStorageProvider(
         ProviderResult.Failure(e.message ?: "Failed to list remote directory", e)
     }
 
+    // JSch expands glob characters in stat/readlink arguments. Resource refs are literal names.
+    private fun literalPath(path: String): String = buildString {
+        for (c in path) {
+            if (c == '*' || c == '?' || c == '\\') append('\\')
+            append(c)
+        }
+    }
+
+    private fun remoteSubject(channel: ChannelSftp, config: SftpConfig): com.infinifolder.storage.SubjectIdentity {
+        synchronized(remoteSubjects) { remoteSubjects[channel] }?.let { return it }
+        val subject = try {
+            val homeAttrs = channel.stat(literalPath(channel.home))
+            com.infinifolder.storage.SubjectIdentity(
+                uid = homeAttrs.uId,
+                username = config.username,
+                gid = homeAttrs.gId,
+                isRoot = config.username.equals("root", ignoreCase = true) || homeAttrs.uId == 0
+            )
+        } catch (error: Exception) {
+            if (!optionalMetadataUnavailable(error)) throw error
+            return com.infinifolder.storage.SubjectIdentity(
+                username = config.username,
+                isRoot = config.username.equals("root", ignoreCase = true)
+            )
+        }
+        // Cache only successful subject inference, for this authenticated channel.
+        // File attributes and revision checks always query the server afresh.
+        synchronized(remoteSubjects) { remoteSubjects[channel] = subject }
+        return subject
+    }
+
+    private fun resourceEntry(connId: String, channel: ChannelSftp, childRemotePath: String,
+        filename: String, attrs: SftpATTRS?, remoteSubject: com.infinifolder.storage.SubjectIdentity): ResourceEntry {
+        val isDir = attrs?.isDir ?: false
+        val sizeBytes = if (isDir) null else attrs?.size
+        val mtime = (attrs?.mTime?.toLong() ?: 0L) * 1000L
+        val childUri = SftpUri.build(connId, childRemotePath)
+
+        val isLink = attrs?.isLink == true
+        var targetIsDir = isDir
+        var targetSize = sizeBytes
+        var linkTarget: String? = null
+        var isBroken = false
+
+        if (isLink) {
+            linkTarget = try { channel.readlink(literalPath(childRemotePath)) } catch (error: Exception) {
+                if (!optionalMetadataUnavailable(error)) throw error
+                null
+            }
+            try {
+                val statAttrs = channel.stat(literalPath(childRemotePath))
+                targetIsDir = statAttrs.isDir
+                targetSize = if (targetIsDir) null else statAttrs.size
+            } catch (error: Exception) {
+                if (!optionalMetadataUnavailable(error)) throw error
+                isBroken = true
+            }
+        }
+
+        val finalIsDir = if (isLink && !isBroken) targetIsDir else isDir
+        val finalMime = if (finalIsDir) "vnd.android.document/directory" else guessMimeType(filename)
+
+        val permMode = attrs?.permissions
+        val permString = attrs?.permissionsString
+        val permFormatted = if (permMode != null) {
+            if (permString != null) "$permString (${String.format("%04o", permMode and 0xFFF)})"
+            else com.infinifolder.storage.PermissionHelper.formatPosix(permMode, finalIsDir)
+        } else null
+        val (canRead, canWrite, canExec) = if (isBroken) {
+            Triple(false, false, false)
+        } else if (permMode != null) {
+            com.infinifolder.storage.PermissionHelper.evaluatePosixPermissions(
+                mode = permMode,
+                fileUid = attrs?.uId,
+                fileGid = attrs?.gId,
+                subject = remoteSubject
+            )
+        } else {
+            Triple(true, true, false)
+        }
+        val owner = attrs?.uId?.takeIf { it >= 0 }?.toString()
+        val group = attrs?.gId?.takeIf { it >= 0 }?.toString()
+
+        return ResourceEntry(
+            ref = ResourceRef(id, childUri.toString()),
+            metadata = ResourceMetadata(
+                name = filename,
+                mimeType = finalMime,
+                sizeBytes = if (finalIsDir) null else (if (isBroken) 0L else targetSize),
+                modifiedAtMillis = mtime,
+                isDirectory = finalIsDir,
+                canRead = canRead,
+                canWrite = canWrite,
+                canExecute = canExec,
+                permissionsMode = permMode,
+                permissionsFormatted = permFormatted,
+                owner = owner,
+                group = group,
+                isSymbolicLink = isLink,
+                linkTarget = linkTarget,
+                isBrokenLink = isBroken
+            ),
+            uri = childUri
+        )
+    }
+
     /** A complete server error may omit optional metadata; broken I/O must reach the pool. */
     private fun optionalMetadataUnavailable(error: Exception): Boolean {
         com.infinifolder.archive.RecoveryCancellation.check()
         return error is SftpException && error.cause == null &&
             error.id !in setOf(ChannelSftp.SSH_FX_BAD_MESSAGE, ChannelSftp.SSH_FX_NO_CONNECTION, ChannelSftp.SSH_FX_CONNECTION_LOST) &&
             (error.id != ChannelSftp.SSH_FX_FAILURE || !error.message.isNullOrBlank())
+    }
+
+    private fun requireNewRemoteName(parent: ResourceRef, name: String) {
+        com.infinifolder.storage.StorageSafety.validateName(name)
+        val uri = Uri.parse(parent.documentId)
+        val (config, creds) = resolveConfigAndCredentials(SftpUri.getConnectionId(uri))
+        val exists = clientPool.withReadChannel(config, creds) { channel ->
+            // Collision checks need names, not MIME/permission mapping or a
+            // readlink/stat round trip for every symlink in the destination.
+            @Suppress("UNCHECKED_CAST")
+            val entries = channel.ls(literalPath(SftpUri.getRemotePath(uri))) as Vector<ChannelSftp.LsEntry>
+            entries.any { it.filename.equals(name, ignoreCase = true) }
+        }
+        if (exists) throw java.nio.file.FileAlreadyExistsException(name)
     }
 
     fun getMetadata(uri: Uri): Pair<Long?, Long?>? = try {
@@ -292,7 +333,7 @@ class SftpStorageProvider(
 
     @Synchronized
     override fun createDirectory(parent: ResourceRef, name: String): ProviderResult<ResourceEntry> = try {
-        com.infinifolder.storage.StorageSafety.requireNewName(this, parent, name)
+        requireNewRemoteName(parent, name)
         val uri = Uri.parse(parent.documentId)
         val connId = SftpUri.getConnectionId(uri)
         val remoteParent = SftpUri.getRemotePath(uri)
@@ -323,7 +364,7 @@ class SftpStorageProvider(
 
     @Synchronized
     override fun createFile(parent: ResourceRef, name: String, mimeType: String): ProviderResult<ResourceEntry> = try {
-        com.infinifolder.storage.StorageSafety.requireNewName(this, parent, name)
+        requireNewRemoteName(parent, name)
         val uri = Uri.parse(parent.documentId)
         val connId = SftpUri.getConnectionId(uri)
         val remoteParent = SftpUri.getRemotePath(uri)
