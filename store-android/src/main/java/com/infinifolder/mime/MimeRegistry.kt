@@ -47,8 +47,12 @@ object MimeRegistry {
         "text/x-sh" to "application/x-sh", "text/x-shellscript" to "application/x-sh",
         "application/x-shellscript" to "application/x-sh", "text/x-perl" to "application/x-perl",
         "text/x-ruby" to "application/x-ruby", "text/x-tcl" to "text/tcl",
-        "text/x-msdos-batch" to "application/x-bat", "application/bat" to "application/x-bat")
+        "text/x-msdos-batch" to "application/x-bat", "application/bat" to "application/x-bat",
+        "application/x-font-ttf" to "font/ttf", "application/x-font-truetype" to "font/ttf",
+        "application/x-font-otf" to "font/otf", "application/x-font-opentype" to "font/otf",
+        "application/vnd.ms-opentype" to "font/otf", "application/x-font-ttc" to "font/collection")
     private val extensions = mapOf(
+        "ttf" to "font/ttf", "otf" to "font/otf", "ttc" to "font/collection", "otc" to "font/collection",
         "incomplete" to "application/vnd.infinifolder.torrent-partial",
         "diz" to "text/plain", "asc" to "text/plain", "nfo" to "text/plain", "ansi" to "image/x-ansi", "txt" to "text/plain", "log" to "text/plain", "cfg" to "text/plain", "conf" to "text/plain", "ini" to "text/plain", "properties" to "text/plain",
         "md" to "text/markdown", "markdown" to "text/markdown", "mdown" to "text/markdown", "mkd" to "text/markdown", "mkdn" to "text/markdown",
@@ -136,6 +140,9 @@ object MimeRegistry {
         "zip" to "application/zip", "cbz" to "application/zip", "tar" to "application/x-tar", "cbt" to "application/x-tar", "gz" to "application/gzip", "tgz" to "application/gzip",
         "bz2" to "application/x-bzip2", "tbz" to "application/x-bzip2", "tbz2" to "application/x-bzip2", "xz" to "application/x-xz", "txz" to "application/x-xz",
         "7z" to "application/x-7z-compressed", "cb7" to "application/x-7z-compressed", "cpio" to "application/x-cpio", "ar" to "application/x-archive", "deb" to "application/vnd.debian.binary-package",
+        // GEN commonly holds a Sega Genesis ROM. A specific non-audio identity
+        // prevents raw ROM vectors from being mistaken for an MPEG frame sync.
+        "gen" to "application/x-genesis-rom",
         // BIN is generic binary data; actual disc/filesystem signatures may refine it.
         "bin" to "application/octet-stream",
         "iso" to "application/x-iso9660-image", "cdr" to "application/x-iso9660-image", "img" to "application/x-raw-disk-image", "raw" to "application/x-raw-disk-image",
@@ -208,6 +215,7 @@ object MimeRegistry {
         "application/pdf" -> "📕"
         "text/csv", "text/tab-separated-values" -> "📊"
         else -> when {
+            mime.startsWith("font/") || mime == "application/font-sfnt" -> "Aa"
             mime.startsWith("image/") -> "🖼"
             mime.startsWith("audio/") -> "♫"
             mime.startsWith("video/") -> "▶"
@@ -236,6 +244,7 @@ object MimeRegistry {
             mime in setOf("application/vnd.ms-cab-compressed", "application/x-cabinet", "application/zstd", "application/vnd.rar", "application/x-rar-compressed", "application/x-arj", "application/zip", "application/x-tar", "application/gzip", "application/x-xz", "application/x-bzip2", "application/x-7z-compressed") -> candidates.add("package-x-generic")
         }
         if (packageFormat("", mime) != null) candidates.add("package-x-generic")
+        if (mime == "application/font-sfnt") candidates.add("font-x-generic")
         if (isTextMime(mime)) candidates.add("text-x-generic")
         val category = mime.substringBefore('/')
         if (category in setOf("text", "image", "video", "audio", "font")) candidates.add("$category-x-generic")

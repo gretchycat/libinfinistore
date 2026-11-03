@@ -192,6 +192,21 @@ object FileMagicDetector {
         ufsMagicAtSuperblock: Int? = null
     ): FileMagicResult? {
         if (header.isEmpty()) return null
+        if (header.size >= 12) {
+            val signature = String(header, 0, 4, StandardCharsets.ISO_8859_1)
+            val tables = (u8(header, 4) shl 8) or u8(header, 5)
+            if (tables in 1..4096) {
+                if (signature == "OTTO") return FileMagicResult("font/otf", "OpenType Font")
+                if (signature == "\u0000\u0001\u0000\u0000" || signature == "true")
+                    return FileMagicResult("font/ttf", "TrueType Font")
+            }
+            if (signature == "ttcf") {
+                val version = (4..7).fold(0L) { value, i -> (value shl 8) or u8(header, i).toLong() }
+                val faces = (8..11).fold(0L) { value, i -> (value shl 8) or u8(header, i).toLong() }
+                if (version in setOf(0x00010000L, 0x00020000L) && faces in 1..256)
+                    return FileMagicResult("font/collection", "OpenType / TrueType Font Collection")
+            }
+        }
         if (header.size >= 16 && String(header, 0, 4, StandardCharsets.US_ASCII) == "MMMD") {
             val size = (4..7).fold(0L) { n, i -> (n shl 8) or u8(header,i).toLong() }
             if (size >= 8) return FileMagicResult("application/vnd.smaf", "Yamaha SMAF Ringtone")
