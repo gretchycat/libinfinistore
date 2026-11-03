@@ -31,13 +31,17 @@ object StorageActivity {
     private fun notifyListeners() { listeners.forEach { runCatching(it) } }
     fun begin(kind: Kind): Closeable {
         val index = kind.ordinal
+        val started = if (kind == Kind.RECONNECTING) System.nanoTime() else 0L
         pulse(kind)
         if (counts.incrementAndGet(index) == 1) notifyListeners()
+        if (kind == Kind.RECONNECTING) DiagnosticLog.record("storage.reconnect.begin", "active=${counts.get(index)}")
         val closed = AtomicBoolean(false)
         return Closeable {
             if (closed.compareAndSet(false, true)) {
                 pulse(kind)
                 if (counts.decrementAndGet(index) == 0) notifyListeners()
+                if (kind == Kind.RECONNECTING) DiagnosticLog.record("storage.reconnect.end",
+                    "active=${counts.get(index)} elapsedMs=${(System.nanoTime() - started) / 1_000_000}")
             }
         }
     }
