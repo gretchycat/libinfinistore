@@ -40,14 +40,53 @@ object MimeRegistry {
         "odp" to PackageFormat("application/vnd.oasis.opendocument.presentation", "zip")
     )
     private val aliases = mapOf("application/x-mobi8-ebook" to "application/vnd.amazon.mobi8-ebook", "application/x-fictionbook" to "application/x-fictionbook+xml", "application/x-java-archive" to "application/java-archive", "application/x-zip-compressed" to "application/zip",
-        "application/x-gzip" to "application/gzip", "text/xml" to "application/xml", "text/x-markdown" to "text/markdown")
+        "application/x-gzip" to "application/gzip", "text/xml" to "application/xml", "text/x-markdown" to "text/markdown",
+        // Keep established app identities while accepting common provider spellings.
+        "text/x-c" to "text/x-csrc", "text/x-c++" to "text/x-c++src",
+        "text/javascript" to "application/javascript", "application/typescript" to "text/typescript",
+        "text/x-sh" to "application/x-sh", "text/x-shellscript" to "application/x-sh",
+        "application/x-shellscript" to "application/x-sh", "text/x-perl" to "application/x-perl",
+        "text/x-ruby" to "application/x-ruby", "text/x-tcl" to "text/tcl",
+        "text/x-msdos-batch" to "application/x-bat", "application/bat" to "application/x-bat")
     private val extensions = mapOf(
         "incomplete" to "application/vnd.infinifolder.torrent-partial",
         "diz" to "text/plain", "asc" to "text/plain", "nfo" to "text/plain", "ansi" to "image/x-ansi", "txt" to "text/plain", "log" to "text/plain", "cfg" to "text/plain", "conf" to "text/plain", "ini" to "text/plain", "properties" to "text/plain",
         "md" to "text/markdown", "markdown" to "text/markdown", "mdown" to "text/markdown", "mkd" to "text/markdown", "mkdn" to "text/markdown",
         "csv" to "text/csv", "tsv" to "text/tab-separated-values", "html" to "text/html", "htm" to "text/html", "xhtml" to "application/xhtml+xml",
         "xml" to "application/xml", "json" to "application/json", "yaml" to "application/yaml", "yml" to "application/yaml",
-        "ts" to "text/typescript", "sh" to "application/x-sh", "py" to "text/x-python", "kt" to "text/x-kotlin", "kts" to "text/x-kotlin", "lua" to "text/x-lua", "js" to "application/javascript",
+        // Source identities must not depend on the device's MimeTypeMap. These
+        // conventional types still open as text; an association does not execute code.
+        "c" to "text/x-csrc", "h" to "text/x-chdr",
+        "cpp" to "text/x-c++src", "cc" to "text/x-c++src", "cxx" to "text/x-c++src",
+        "hpp" to "text/x-c++hdr", "hh" to "text/x-c++hdr", "hxx" to "text/x-c++hdr", "hp" to "text/x-c++hdr",
+        "ipp" to "text/x-c++hdr", "tcc" to "text/x-c++src", "inl" to "text/x-c++hdr",
+        "pas" to "text/x-pascal", "pp" to "text/x-pascal",
+        "ada" to "text/x-adasrc", "adb" to "text/x-adasrc", "ads" to "text/x-adasrc",
+        "bas" to "text/x-basic", "bi" to "text/x-basic", "vb" to "text/x-vb", "vbs" to "text/vbscript",
+        "bat" to "application/x-bat", "cmd" to "application/x-bat", "ps1" to "application/x-powershell",
+        "java" to "text/x-java", "kt" to "text/x-kotlin", "kts" to "text/x-kotlin",
+        "cs" to "text/x-csharp", "scala" to "text/x-scala", "sc" to "text/x-scala",
+        "go" to "text/x-go", "rs" to "text/rust", "swift" to "text/x-swift", "dart" to "application/vnd.dart",
+        "py" to "text/x-python", "pyw" to "text/x-python", "pyi" to "text/x-python", "py3" to "text/x-python3", "py2" to "text/x-python2",
+        "rb" to "application/x-ruby", "pl" to "application/x-perl", "pm" to "application/x-perl", "perl" to "application/x-perl",
+        "php" to "application/x-php", "php3" to "application/x-php", "php4" to "application/x-php", "php5" to "application/x-php", "phps" to "application/x-php",
+        "js" to "application/javascript", "mjs" to "application/javascript", "cjs" to "application/javascript", "jsx" to "application/javascript",
+        "ts" to "text/typescript", "tsx" to "text/typescript", "mts" to "text/typescript", "cts" to "text/typescript",
+        "sh" to "application/x-sh", "bash" to "application/x-sh", "zsh" to "application/x-sh", "ksh" to "application/x-sh",
+        "csh" to "application/x-csh", "tcsh" to "application/x-csh", "fish" to "application/x-fishscript",
+        "lua" to "text/x-lua", "tcl" to "text/tcl", "tk" to "text/tcl", "r" to "text/x-r-source",
+        "f" to "text/x-fortran", "for" to "text/x-fortran", "f90" to "text/x-fortran", "f95" to "text/x-fortran", "f03" to "text/x-fortran", "f08" to "text/x-fortran",
+        "cob" to "text/x-cobol", "cbl" to "text/x-cobol", "asm" to "text/x-asm", "s" to "text/x-asm",
+        "lisp" to "text/x-common-lisp", "lsp" to "text/x-common-lisp", "el" to "text/x-emacs-lisp",
+        "scm" to "text/x-scheme", "ss" to "text/x-scheme", "clj" to "text/x-clojure", "cljs" to "text/x-clojure", "cljc" to "text/x-clojure",
+        "hs" to "text/x-haskell", "lhs" to "text/x-literate-haskell", "erl" to "text/x-erlang", "hrl" to "text/x-erlang",
+        "ex" to "text/x-elixir", "exs" to "text/x-elixir", "fs" to "text/x-fsharp", "fsx" to "text/x-fsharp",
+        "jl" to "text/julia", "nim" to "text/x-nim", "nims" to "text/x-nimscript",
+        "css" to "text/css", "scss" to "text/x-scss", "sass" to "text/x-sass", "less" to "text/x-less",
+        "sql" to "application/sql", "toml" to "application/toml", "jsonc" to "application/json",
+        "xsd" to "application/xml", "xsl" to "application/xml", "xslt" to "application/xml", "plist" to "application/xml",
+        "diff" to "text/x-patch", "patch" to "text/x-patch", "mk" to "text/x-makefile", "mak" to "text/x-makefile",
+        "cmake" to "text/x-cmake", "gradle" to "text/x-groovy", "groovy" to "text/x-groovy",
         "mobi" to "application/x-mobipocket-ebook", "azw" to "application/vnd.amazon.ebook", "azw3" to "application/vnd.amazon.mobi8-ebook", "prc" to "application/x-mobipocket-ebook",
         "fb2" to "application/x-fictionbook+xml", "rtf" to "application/rtf",
         "xls" to "application/vnd.ms-excel", "xlt" to "application/vnd.ms-excel", "ppt" to "application/vnd.ms-powerpoint", "pot" to "application/vnd.ms-powerpoint", "pps" to "application/vnd.ms-powerpoint", "dot" to "application/msword",
@@ -149,7 +188,9 @@ object MimeRegistry {
         "application/json", "application/ld+json", "application/xml", "application/xhtml+xml",
         "application/yaml", "application/x-yaml", "application/toml", "application/javascript",
         "application/ecmascript", "application/x-javascript", "application/x-sh", "application/x-shellscript",
-        "application/x-python", "application/x-perl", "application/x-ruby", "application/sql"
+        "application/x-python", "application/x-perl", "application/x-ruby", "application/sql",
+        "application/x-csh", "application/x-bat", "application/x-powershell", "application/x-fishscript",
+        "application/x-php", "application/vnd.dart"
     ) || mime.endsWith("+json") || mime.endsWith("+xml")
 
     /** Immutable seed associations for editable host registries; aliases remain canonicalized here. */
