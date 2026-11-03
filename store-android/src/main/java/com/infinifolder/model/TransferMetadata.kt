@@ -48,7 +48,11 @@ data class TransferMetadata(
         }
     }
     companion object {
-        fun from(metadata: ResourceMetadata) = TransferMetadata(metadata.permissionsMode,
+        // Provider metadata may include POSIX file-type bits (e.g. SFTP and ZIP).
+        // Transfers carry permissions/special bits only; negative unknown values
+        // must not become 07777 when masked.
+        fun from(metadata: ResourceMetadata) = TransferMetadata(
+            metadata.permissionsMode?.takeIf { it >= 0 }?.and(0xfff),
             metadata.owner?.toLongOrNull(), metadata.group?.toLongOrNull(),
             metadata.modifiedAtMillis?.let { Math.floorDiv(it, 1000) },
             metadata.modifiedAtMillis?.let { (Math.floorMod(it, 1000) * 1_000_000).toInt() } ?: 0)
