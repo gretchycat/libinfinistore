@@ -19,12 +19,13 @@ object LinkResolver {
         var entry = initial
         val visited = mutableSetOf<ResourceRef>()
         val kinds = mutableListOf<LinkKind>()
+        var displayName: String? = null
         var result: ResolvedLink? = null
         repeat(16) {
             if (result == null) {
                 if (!visited.add(entry.ref)) throw IOException("Cyclic link target")
                 val kind = kind(entry.metadata)
-                if (kind == null) result = ResolvedLink(entry.uri, entry, kinds.toList(), entry.metadata.name, entry.metadata.mimeType) else {
+                if (kind == null) result = ResolvedLink(entry.uri, entry, kinds.toList(), displayName ?: entry.metadata.name, entry.metadata.mimeType) else {
                     kinds += kind
                     val target = if (kind == LinkKind.NATIVE) {
                         when (val resolved = provider.resolveLink(entry.ref)) {
@@ -51,10 +52,13 @@ object LinkResolver {
                         }
                         val info = ShortcutInfo.fromJson(String(bytes, Charsets.UTF_8))
                             ?: throw IOException("Unsupported link-file encoding (binary Windows LNK is not a JSON shortcut)")
+                        // The outermost explicit label describes this link even
+                        // when its target is owned by a storage provider.
+                        if (displayName == null) displayName = info.displayNameOverride?.takeIf { it.isNotBlank() }
                         val uri = Uri.parse(info.targetUri)
                         val ref = provider.refForUri(uri)
                         if (ref == null) {
-                            result = ResolvedLink(uri, null, kinds.toList(), info.displayNameOverride, info.targetMimeType)
+                            result = ResolvedLink(uri, null, kinds.toList(), displayName, info.targetMimeType)
                         }
                         ref
                     }
