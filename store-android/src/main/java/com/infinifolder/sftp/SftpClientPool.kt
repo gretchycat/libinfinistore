@@ -3,6 +3,7 @@ package com.infinifolder.sftp
 import com.jcraft.jsch.ChannelSftp
 import com.jcraft.jsch.JSch
 import com.jcraft.jsch.Session
+import com.jcraft.jsch.SftpException
 import java.io.Closeable
 import java.io.IOException
 import java.io.InputStream
@@ -121,23 +122,38 @@ class SftpClientPool : Closeable {
     /** Retry an idempotent, read-only operation once when JSch's session stream has gone stale. */
     fun <T> withReadChannel(config: SftpConfig, credentials: SftpCredentials, block: (ChannelSftp) -> T): T {
         val client = getOrCreateClient(config, credentials)
+        fun read(owner: ActiveClient): T = withChannel(owner, config) { channel ->
+            val value = block(channel)
+            // Optional metadata probes must not hide cancellation and return a
+            // channel with an interrupted request still pending to the pool.
+            RecoveryCancellation.check()
+            value
+        }
         try {
-            return withChannel(client, config, block)
+            return read(client)
         } catch (first: Exception) {
             RecoveryCancellation.check()
-            if (!isSessionUnavailable(client, first) && first !is ChannelOpenFailure) throw first
+            val replaceSession = isSessionUnavailable(client, first) || first is ChannelOpenFailure
+            // JSch also reports an unexpected reply packet as an empty FAILURE.
+            // withChannel has already discarded that metadata channel. Retry
+            // only this read callback once, preserving active stream channels.
+            val emptyFailure = first is SftpException && first.id == ChannelSftp.SSH_FX_FAILURE && first.message.isNullOrBlank()
+            if (!replaceSession && !emptyFailure) throw first
             com.infinifolder.storage.DiagnosticLog.record(
-                "sftp.session.reconnect",
-                "connection=${config.id} operation=read-only cause=${first.javaClass.simpleName}"
+                if (replaceSession) "sftp.session.reconnect" else "sftp.channel.read.retry",
+                "connection=${config.id} operation=read-only cause=${first.javaClass.simpleName}" +
+                    if (emptyFailure) " code=${ChannelSftp.SSH_FX_FAILURE} reason=empty-failure" else ""
             )
-            val replacement = replaceStaleClient(config, credentials, client)
+            val replacement = if (replaceSession) replaceStaleClient(config, credentials, client) else client
             try {
-                return withChannel(replacement, config, block)
+                return read(replacement)
             } catch (retry: Exception) {
                 if (retry !== first) retry.addSuppressed(first)
                 com.infinifolder.storage.DiagnosticLog.record(
-                    "sftp.session.reconnect.failed",
+                    if (replaceSession) "sftp.session.reconnect.failed" else "sftp.channel.read.retry.failed",
                     "connection=${config.id} operation=read-only", retry)
+                if (retry is SftpException && retry.id == ChannelSftp.SSH_FX_FAILURE && retry.message.isNullOrBlank())
+                    throw IOException("SFTP read failed after retry (code ${retry.id}; no error message)", retry)
                 throw retry
             }
         }

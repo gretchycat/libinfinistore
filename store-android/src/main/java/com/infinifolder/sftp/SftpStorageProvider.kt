@@ -7,6 +7,7 @@ import com.infinifolder.storage.ProviderConnection
 import com.infinifolder.storage.StorageProvider
 import com.jcraft.jsch.ChannelSftp
 import com.jcraft.jsch.SftpATTRS
+import com.jcraft.jsch.SftpException
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
@@ -151,7 +152,8 @@ class SftpStorageProvider(
                     gid = homeAttrs.gId,
                     isRoot = config.username.equals("root", ignoreCase = true) || homeAttrs.uId == 0
                 )
-            } catch (_: Throwable) {
+            } catch (error: Exception) {
+                if (!optionalMetadataUnavailable(error)) throw error
                 com.infinifolder.storage.SubjectIdentity(
                     username = config.username,
                     isRoot = config.username.equals("root", ignoreCase = true)
@@ -177,12 +179,16 @@ class SftpStorageProvider(
                 var isBroken = false
 
                 if (isLink) {
-                    linkTarget = try { channel.readlink(childRemotePath) } catch (_: Throwable) { null }
+                    linkTarget = try { channel.readlink(childRemotePath) } catch (error: Exception) {
+                        if (!optionalMetadataUnavailable(error)) throw error
+                        null
+                    }
                     try {
                         val statAttrs = channel.stat(childRemotePath)
                         targetIsDir = statAttrs.isDir
                         targetSize = if (targetIsDir) null else statAttrs.size
-                    } catch (_: Throwable) {
+                    } catch (error: Exception) {
+                        if (!optionalMetadataUnavailable(error)) throw error
                         isBroken = true
                     }
                 }
@@ -238,6 +244,14 @@ class SftpStorageProvider(
         ProviderResult.Success(entries)
     } catch (e: Throwable) {
         ProviderResult.Failure(e.message ?: "Failed to list remote directory", e)
+    }
+
+    /** A complete server error may omit optional metadata; broken I/O must reach the pool. */
+    private fun optionalMetadataUnavailable(error: Exception): Boolean {
+        com.infinifolder.archive.RecoveryCancellation.check()
+        return error is SftpException && error.cause == null &&
+            error.id !in setOf(ChannelSftp.SSH_FX_BAD_MESSAGE, ChannelSftp.SSH_FX_NO_CONNECTION, ChannelSftp.SSH_FX_CONNECTION_LOST) &&
+            (error.id != ChannelSftp.SSH_FX_FAILURE || !error.message.isNullOrBlank())
     }
 
     fun getMetadata(uri: Uri): Pair<Long?, Long?>? = try {
