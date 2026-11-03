@@ -6,7 +6,7 @@ import com.infinifolder.storage.DiagnosticLog
 import com.infinifolder.storage.StorageProvider
 import java.io.IOException
 
-/** Short-lived read-only source reuse for one copy operation, never a global device cache. */
+/** Short-lived read-only source reuse for one transfer's copy phase, never a global device cache. */
 object ReadDeviceScope {
     private class Source(val size: Long, val modified: Long, val device: BlockDevice) {
         var leases = 0

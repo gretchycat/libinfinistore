@@ -124,9 +124,10 @@ object FileOperations {
         if (com.infinifolder.storage.ContainerLinksProvider.owns(destinationFolderUri) && !createLinks &&
             entries.any { it.metadata.isDirectory || !ShortcutInfo.isShortcut(it.metadata.name, it.metadata.mimeType) })
             throw IOException("Virtual root accepts container links only. Use Link to for folders and archives; regular files belong inside storage containers.")
-        // Reuse backing image range caches for ordinary copies only. Recovery
-        // needs fresh safety reads, and mutation paths must not reuse snapshots.
-        val reuseReads = !move && !createLinks && !partialRecovery &&
+        // Reuse backing range caches during ordinary copy/move reads. Moves
+        // bypass the scope before their final source check and any deletion;
+        // recovery and container destination mutations still need fresh reads.
+        val reuseReads = !createLinks && !partialRecovery &&
             !com.infinifolder.archive.ArchiveUri.isArchiveUri(destinationFolderUri) &&
             entries.none { it.metadata.recoveryNote != null || provider.recoverySource(it.ref) != null }
         com.infinifolder.archive.ReadDeviceScope.withScope(reuseReads, onWarning) {
@@ -1304,14 +1305,18 @@ object FileOperations {
             published = true
             activeProvider = provider
             // Keep all originals until every copy is complete and destination publication succeeds.
-            for (entry in originalsToRemove) {
-                if (isCancelled()) throw InterruptedException("Move cancelled before original removal")
-                timed("Rechecking source: ${entry.metadata.name}", entry.metadata.name) { verifySource(entry) }
-                if (isCancelled()) throw InterruptedException("Move cancelled before original removal")
-                undo.beforeRemoval(entry)
-                val removed = timed("Removing verified original: ${entry.metadata.name}", entry.metadata.name) { provider.delete(entry.ref) }
-                if (removed !is ProviderResult.Success) throw IOException("Copy completed, but original removal failed: " +
-                    ((removed as? ProviderResult.Failure)?.message ?: "Delete unsupported"))
+            // Final source hashes/attributes and deletion must see live storage,
+            // never the blocks cached while producing the destination copies.
+            com.infinifolder.archive.ReadDeviceScope.withScope(false) {
+                for (entry in originalsToRemove) {
+                    if (isCancelled()) throw InterruptedException("Move cancelled before original removal")
+                    timed("Rechecking source: ${entry.metadata.name}", entry.metadata.name) { verifySource(entry) }
+                    if (isCancelled()) throw InterruptedException("Move cancelled before original removal")
+                    undo.beforeRemoval(entry)
+                    val removed = timed("Removing verified original: ${entry.metadata.name}", entry.metadata.name) { provider.delete(entry.ref) }
+                    if (removed !is ProviderResult.Success) throw IOException("Copy completed, but original removal failed: " +
+                        ((removed as? ProviderResult.Failure)?.message ?: "Delete unsupported"))
+                }
             }
             if (isCancelled()) throw InterruptedException("Transfer cancelled")
             if (transferEntries.none { it.ref.providerId == "torrent" } && !createLinks && !partialRecovery)
