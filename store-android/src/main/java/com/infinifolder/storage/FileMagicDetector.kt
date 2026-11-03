@@ -510,6 +510,12 @@ object FileMagicDetector {
         }
 
         // 8. Documents & Databases
+        // Palm database type/creator, not the ambiguous .pdb extension.
+        if(header.size>=68 && String(header,60,8,StandardCharsets.US_ASCII)=="BOOKMOBI")
+            return FileMagicResult("application/x-mobipocket-ebook","Mobipocket/Kindle Book")
+        if(header.size>=5 && String(header,0,5,StandardCharsets.US_ASCII)=="{\\rtf")
+            return FileMagicResult("application/rtf","Rich Text Document")
+
         // PDF: "%PDF-"
         if (header.size >= 5 && String(header, 0, 5, StandardCharsets.US_ASCII) == "%PDF-") {
             return FileMagicResult("application/pdf", "PDF Document")
