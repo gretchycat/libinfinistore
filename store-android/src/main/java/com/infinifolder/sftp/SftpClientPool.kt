@@ -9,7 +9,7 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.nio.charset.StandardCharsets
 import com.infinifolder.archive.RecoveryCancellation
-import com.infinifolder.storage.StorageActivity
+import com.infinifolder.storage.NetworkConnectionStatus
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
@@ -254,7 +254,7 @@ class SftpClientPool : Closeable {
 
     /** Replace only the failed pooled session; another thread may already have refreshed it. */
     private fun replaceStaleClient(config: SftpConfig, credentials: SftpCredentials,
-        stale: ActiveClient): ActiveClient = StorageActivity.track(StorageActivity.Kind.RECONNECTING) { synchronized(lock) {
+        stale: ActiveClient): ActiveClient = NetworkConnectionStatus.reconnect(NetworkConnectionStatus.Key("sftp", config.id)) { synchronized(lock) {
         val current = clients[config.id]
         if (current !== stale && current?.session?.isConnected == true) return@synchronized current
         reapRetired()
@@ -299,7 +299,7 @@ class SftpClientPool : Closeable {
             }
 
             val fresh = if (config.id in connectedBefore)
-                StorageActivity.track(StorageActivity.Kind.RECONNECTING) { createClient(config, credentials) }
+                NetworkConnectionStatus.reconnect(NetworkConnectionStatus.Key("sftp", config.id)) { createClient(config, credentials) }
                 else createClient(config, credentials)
             clients[config.id] = fresh
             connectedBefore.add(config.id)
