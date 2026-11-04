@@ -192,6 +192,15 @@ object FileMagicDetector {
         ufsMagicAtSuperblock: Int? = null
     ): FileMagicResult? {
         if (header.isEmpty()) return null
+        if(header.size>=128 && u8(header,5)==0xaf && u8(header,4) in setOf(0x11,0x12)){
+            fun word(at:Int)=u8(header,at) or (u8(header,at+1) shl 8)
+            val unclosed=header.size>=144 && header.take(4).all{it==0.toByte()} && word(6)==0 &&
+                word(132)==0xf1fa && word(134)>0
+            if(((word(6)>0 && word(8)>0 && word(10)>0) || unclosed) && word(12) in setOf(0,8))
+                return FileMagicResult("video/x-fli","Autodesk Animator FLI/FLC Animation")
+        }
+        if(header.size>=8 && header.take(8).map{it.toInt() and 255}==listOf(138,77,78,71,13,10,26,10))
+            return FileMagicResult("video/x-mng","MNG Animation")
         if (header.size >= 12) {
             val signature = String(header, 0, 4, StandardCharsets.ISO_8859_1)
             val tables = (u8(header, 4) shl 8) or u8(header, 5)

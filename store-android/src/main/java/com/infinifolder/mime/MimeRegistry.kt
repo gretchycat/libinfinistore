@@ -50,7 +50,12 @@ object MimeRegistry {
         "text/x-msdos-batch" to "application/x-bat", "application/bat" to "application/x-bat",
         "application/x-font-ttf" to "font/ttf", "application/x-font-truetype" to "font/ttf",
         "application/x-font-otf" to "font/otf", "application/x-font-opentype" to "font/otf",
-        "application/vnd.ms-opentype" to "font/otf", "application/x-font-ttc" to "font/collection")
+        "application/vnd.ms-opentype" to "font/otf", "application/x-font-ttc" to "font/collection",
+        "video/x-flc" to "video/x-fli", "video/fli" to "video/x-fli", "video/flc" to "video/x-fli",
+        "image/fli" to "video/x-fli", "image/flc" to "video/x-fli", "image/x-fli" to "video/x-fli",
+        "image/x-flc" to "video/x-fli", "image/x-flic" to "video/x-fli", "video/x-flic" to "video/x-fli",
+        "image/mng" to "video/x-mng", "application/x-mng" to "video/x-mng", "video/mng" to "video/x-mng",
+        "image/x-mng" to "video/x-mng")
     private val extensions = mapOf(
         "ttf" to "font/ttf", "otf" to "font/otf", "ttc" to "font/collection", "otc" to "font/collection",
         "incomplete" to "application/vnd.infinifolder.torrent-partial",
@@ -107,6 +112,7 @@ object MimeRegistry {
         "pcx" to "image/vnd.zbrush.pcx", "dcx" to "image/x-dcx",
         "ora" to "image/openraster", "kra" to "image/x-krita", "psd" to "image/vnd.adobe.photoshop", "psb" to "image/vnd.adobe.photoshop", "xcf" to "image/x-xcf", "ase" to "image/x-aseprite", "aseprite" to "image/x-aseprite",
         "iff" to "image/x-ilbm", "ilbm" to "image/x-ilbm", "lbm" to "image/x-ilbm",
+        "fli" to "video/x-fli", "flc" to "video/x-fli", "flic" to "video/x-fli", "mng" to "video/x-mng",
         "neo" to "image/x-neochrome", "pi1" to "image/x-degas", "pi2" to "image/x-degas", "pi3" to "image/x-degas", "pc1" to "image/x-degas", "pc2" to "image/x-degas", "pc3" to "image/x-degas",
         "scr" to "image/x-zx-spectrum-scr", "kla" to "image/x-koala", "koa" to "image/x-koala",
         "icns" to "image/icns", "pntg" to "image/x-macpaint", "mac" to "image/x-macpaint", "pct" to "image/x-pict", "pict" to "image/x-pict",
