@@ -3,6 +3,8 @@ package com.infinifolder.archive
 import java.util.Locale
 
 object ArchiveFormats {
+    /** Built-in hints only. Runtime extension handlers register their own format descriptors. */
+    val knownExtensions:Set<String> get() = SIMPLE_EXTENSIONS + COMPOUND_EXTENSIONS.map { it.removePrefix(".") }
     private val DISC_BASE_EXTENSIONS = setOf(
         "iso", "cdr",
         "img", "raw", "ima", "flp",
@@ -91,7 +93,10 @@ object ArchiveFormats {
         val ext = lowerName.substringAfterLast('.', "")
         if (SIMPLE_EXTENSIONS.contains(ext)) return true
         if (mimeType.isNotEmpty() && ARCHIVE_MIME_TYPES.contains(com.infinifolder.mime.MimeRegistry.normalize(mimeType))) return true
-        return false
+        val resource=io.github.gretchycat.infinistream.CapabilityResource(io.github.gretchycat.infinistream.StreamMetadata(
+            name=name,content=io.github.gretchycat.infinistream.ContentType(mimeType=mimeType)))
+        return io.github.gretchycat.infinistream.RuntimeCapabilities.installed().descriptors().any { handler ->
+            handler.id!="vault.builtin" && handler.attributes["container"]=="true" && handler.formats.any { it.score(resource)>0 } }
     }
 
     fun isPackagedFormat(name: String, mimeType: String = ""): Boolean =

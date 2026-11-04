@@ -23,6 +23,7 @@ data class SourceTypeDescriptor(
 
 interface StorageProviderFactory {
     val sourceTypeId: String
+    val descriptor: SourceTypeDescriptor get() = SourceTypeDescriptor(sourceTypeId,sourceTypeId,"network-server","Registered storage provider",true)
     fun create(resolver: ContentResolver, connection: ProviderConnection? = null): StorageProvider
 }
 
@@ -37,32 +38,28 @@ interface ProviderConnectionRepository {
 class StorageProviderRegistry {
     private val factories = linkedMapOf<String, StorageProviderFactory>()
 
-    fun register(factory: StorageProviderFactory) {
+    @Synchronized fun register(factory: StorageProviderFactory) {
         require(factory.sourceTypeId !in factories) { "Provider already registered: ${factory.sourceTypeId}" }
         factories[factory.sourceTypeId] = factory
     }
 
-    fun create(sourceTypeId: String, resolver: ContentResolver, connection: ProviderConnection? = null): StorageProvider? {
+    @Synchronized fun create(sourceTypeId: String, resolver: ContentResolver, connection: ProviderConnection? = null): StorageProvider? {
         require(connection == null || connection.sourceTypeId == sourceTypeId) { "Connection type does not match provider type" }
         return factories[sourceTypeId]?.create(resolver, connection)
     }
 
-    fun sourceTypes(): List<SourceTypeDescriptor> = sourceCatalog.map { descriptor ->
-        descriptor.copy(implemented = descriptor.id in factories)
+    @Synchronized fun sourceTypes(): List<SourceTypeDescriptor> = factories.values.map { it.descriptor.copy(implemented=true) }
+    @Synchronized fun installDiscovered(context:android.content.Context,lookup:(String)->ProviderConnection?) {
+        StoreCapabilities.protocols().forEach { handler ->
+            if(handler.sourceType.id !in factories)register(handler.factory(context,lookup))
+        }
     }
-
-    private val sourceCatalog = listOf(
-        SourceTypeDescriptor("saf", "Android storage / SD card", "📁", "User-authorized Android document trees", false),
-        SourceTypeDescriptor("smb", "SMB / Samba", "🖧", "Network shares", false),
-        SourceTypeDescriptor("sftp", "SFTP / SSH", "🔐", "Secure remote file servers", false),
-        SourceTypeDescriptor("ftp", "FTP", "🌐", "FTP servers", false),
-        SourceTypeDescriptor("nfs", "NFS", "🗄", "Network file systems", false),
-        SourceTypeDescriptor("webdav", "WebDAV", "🌐", "Web-based file servers", false),
-        SourceTypeDescriptor("cloud", "Cloud storage", "☁️", "Cloud and web storage providers", false)
-    )
+    fun rootUri(connection:ProviderConnection):android.net.Uri? = StoreCapabilities.protocols()
+        .firstOrNull { it.sourceType.id==connection.sourceTypeId }?.rootUri(connection)
 }
 
 class SafProviderFactory : StorageProviderFactory {
     override val sourceTypeId = "saf"
+    override val descriptor=SourceTypeDescriptor("saf","Android storage / SD card","📁","User-authorized Android document trees",true)
     override fun create(resolver: ContentResolver, connection: ProviderConnection?): StorageProvider = SafProvider(resolver)
 }

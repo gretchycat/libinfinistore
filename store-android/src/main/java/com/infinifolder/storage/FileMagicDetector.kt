@@ -50,7 +50,7 @@ object FileMagicDetector {
         val len = file.length()
         if (len <= 0L) return null
 
-        val cacheKey = "${file.absolutePath}:$len:${file.lastModified()}:$peekCompressedPayload"
+        val cacheKey = "${file.absolutePath}:$len:${file.lastModified()}:$peekCompressedPayload:${io.github.gretchycat.infinistream.RuntimeCapabilities.installed().revision}"
         synchronized(fileCache) {
             fileCache.get(cacheKey)?.let { return it }
         }
@@ -192,6 +192,7 @@ object FileMagicDetector {
         ufsMagicAtSuperblock: Int? = null
     ): FileMagicResult? {
         if (header.isEmpty()) return null
+        registeredIdentity(header)?.let{return it}
         if(header.size>=128 && u8(header,5)==0xaf && u8(header,4) in setOf(0x11,0x12)){
             fun word(at:Int)=u8(header,at) or (u8(header,at+1) shl 8)
             val unclosed=header.size>=144 && header.take(4).all{it==0.toByte()} && word(6)==0 &&
@@ -656,6 +657,42 @@ object FileMagicDetector {
 
         // 12. Text / Script / Markup heuristics
         return detectTextFormat(header)
+    }
+
+    private val identifying=ThreadLocal.withInitial {false}
+    private fun registeredIdentity(header:ByteArray):FileMagicResult? {
+        if(identifying.get())return null
+        identifying.set(true)
+        return try {registeredIdentityOnce(header)}finally{identifying.set(false)}
+    }
+    private fun registeredIdentityOnce(header:ByteArray):FileMagicResult? {
+        val registry=io.github.gretchycat.infinistream.RuntimeCapabilities.installed()
+        val metadata=io.github.gretchycat.infinistream.StreamMetadata(length=header.size.toLong())
+        val input=object:io.github.gretchycat.infinistream.PositionalReadable {
+            override fun readAt(position:Long,buffer:ByteArray,offset:Int,length:Int):Int {
+                io.github.gretchycat.infinistream.requireRange(position,buffer,offset,length)
+                if(length==0)return 0
+                if(position>=header.size)return -1
+                val count=minOf(length,header.size-position.toInt());header.copyInto(buffer,offset,position.toInt(),position.toInt()+count);return count
+            }
+        }
+        val reader=io.github.gretchycat.infinistream.ProbeReader(input,metadata)
+        val candidates=mutableListOf<Triple<String,String,Boolean>>()
+        registry.query("identify").forEach { entry ->
+            if(entry.descriptor.id=="store.magic")return@forEach
+            val probe=entry.handler.service(io.github.gretchycat.infinistream.FormatProbe::class.java)?:return@forEach
+            try {probe.detect(reader).filter{it.confidence>=.8}.forEach {candidate->candidate.content.mimeType?.let {mime->
+                candidates+=Triple(com.infinifolder.mime.MimeRegistry.normalize(mime),entry.descriptor.title,entry.descriptor.attributes["container"]=="true")
+            }}}catch(cancel:java.io.InterruptedIOException){throw cancel}catch(_:Exception){}
+        }
+        // Ordinary decode signatures can be weak (e.g. ID3); only explicit identity claims may replace built-in identification.
+        registry.descriptors().filter{it.attributes["identityMagic"]=="true"}.forEach {handler->
+            handler.formats.filter {f->f.magic.any{it.matches(header)}}.forEach{format->
+                format.mimeTypes.filter{!it.contains('*')}.forEach {mime->candidates+=Triple(
+                    com.infinifolder.mime.MimeRegistry.normalize(mime),handler.title,handler.attributes["container"]=="true")}
+            }
+        }
+        return candidates.distinctBy{it.first}.singleOrNull()?.let{FileMagicResult(it.first,it.second,it.third)}
     }
 
     private enum class OuterCompressor(val label: String, val mimeType: String) {

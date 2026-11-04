@@ -12,6 +12,8 @@ class FtpProviderFactory(
 ) : StorageProviderFactory {
 
     override val sourceTypeId = "ftp"
+    override val descriptor get() = sourceType
+    companion object { val sourceType = com.infinifolder.storage.SourceTypeDescriptor("ftp","FTP / FTPS","🌐","FTP file servers",true) }
 
     val provider: FtpStorageProvider by lazy {
         FtpStorageProvider(context = context, connectionLookup = connectionLookup)

@@ -12,6 +12,8 @@ class SmbProviderFactory(
 ) : StorageProviderFactory {
 
     override val sourceTypeId = "smb"
+    override val descriptor get() = sourceType
+    companion object { val sourceType = com.infinifolder.storage.SourceTypeDescriptor("smb","SMB / Samba","🖧","Network shares",true) }
 
     val provider: SmbStorageProvider by lazy {
         SmbStorageProvider(context = context, connectionLookup = connectionLookup)

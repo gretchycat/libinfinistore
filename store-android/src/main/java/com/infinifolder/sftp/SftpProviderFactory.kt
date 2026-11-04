@@ -12,6 +12,8 @@ class SftpProviderFactory(
 ) : StorageProviderFactory {
 
     override val sourceTypeId = "sftp"
+    override val descriptor get() = sourceType
+    companion object { val sourceType = com.infinifolder.storage.SourceTypeDescriptor("sftp","SFTP / SSH","🔐","Secure remote file servers",true) }
 
     val provider: SftpStorageProvider by lazy {
         SftpStorageProvider(context, connectionLookup = connectionLookup)

@@ -178,7 +178,9 @@ object MimeRegistry {
             if (extension[0] == 'r') return "application/vnd.rar"
             if (extension[0] == 'a') return "application/x-arj"
         }
-        return packages[extension]?.mime ?: extensions[extension] ?: runCatching {
+        val registered=runtimeAssociations().entries.filter { name.lowercase(Locale.ROOT).endsWith(".${it.key}") }
+            .sortedByDescending { it.key.length }.firstOrNull()?.value?.singleOrNull()
+        return packages[extension]?.mime ?: extensions[extension] ?: registered ?: runCatching {
             android.webkit.MimeTypeMap.getSingleton()?.getMimeTypeFromExtension(extension)
         }.getOrNull()?.let(::normalize) ?: "application/octet-stream"
     }
@@ -207,8 +209,24 @@ object MimeRegistry {
     ) || mime.endsWith("+json") || mime.endsWith("+xml")
 
     /** Immutable seed associations for editable host registries; aliases remain canonicalized here. */
-    fun associations(): Map<String, String> = extensions.mapValues { normalize(it.value) } +
+    fun associations(): Map<String, String> = runtimeAssociations().mapNotNull { (ext,values) -> values.singleOrNull()?.let { ext to it } }.toMap() + extensions.mapValues { normalize(it.value) } +
         packages.mapValues { normalize(it.value.mime) }
+
+    private data class RuntimeAssociations(val revision:Long,val entries:Map<String,Set<String>>)
+    @Volatile private var runtimeAssociationCache:RuntimeAssociations?=null
+    /** Recognition facts only; execution availability belongs to the capability registry. */
+    fun runtimeAssociations():Map<String,Set<String>> {
+        val registry=io.github.gretchycat.infinistream.RuntimeCapabilities.installed()
+        runtimeAssociationCache?.takeIf { it.revision==registry.revision }?.let {return it.entries}
+        val entries=linkedMapOf<String,MutableSet<String>>()
+        registry.descriptors().flatMap {it.formats}.forEach { format ->
+            val types=format.mimeTypes.filter { !it.contains('*') }.map(::normalize)
+            format.extensions.forEach { ext ->entries.getOrPut(ext){linkedSetOf()}.addAll(types) }
+        }
+        val result=entries.mapValues { it.value.toSet() }.filterValues {it.isNotEmpty()}
+        runtimeAssociationCache=RuntimeAssociations(registry.revision,result)
+        return result
+    }
 
     fun fallbackIcon(mimeType: String): String = when (val mime = normalize(mimeType)) {
         "application/vnd.infinifolder.partial-download", "application/vnd.infinifolder.torrent-partial" -> "⬇"
