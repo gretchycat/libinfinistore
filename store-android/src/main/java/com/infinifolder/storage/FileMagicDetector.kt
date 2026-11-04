@@ -589,11 +589,16 @@ object FileMagicDetector {
             return FileMagicResult("audio/ogg", "Ogg Audio")
         }
 
-        // MPEG audio: "ID3" or frame sync (MPEG Layer I/II/III)
-        if (header.size >= 3 && String(header, 0, 3, StandardCharsets.US_ASCII) == "ID3") {
+        // Validate the tag/header fields; erased ROMs beginning FF FF are not MPEG audio.
+        if (header.size >= 10 && String(header, 0, 3, StandardCharsets.US_ASCII) == "ID3" &&
+            u8(header,3) in 2..4 && u8(header,4)!=255 && (6..9).all{u8(header,it)<128} &&
+            (u8(header,5) and when(u8(header,3)){2->0x3f;3->0x1f;else->0x0f})==0) {
             return FileMagicResult("audio/mpeg", "MPEG Audio")
         }
-        if (header.size >= 2 && u8(header, 0) == 0xFF && (u8(header, 1) and 0xE0) == 0xE0) {
+        // MPEG field constraints: FFmpeg libavcodec/mpegaudiodecheader.h (format facts).
+        if (header.size >= 4 && u8(header, 0) == 0xFF && (u8(header, 1) and 0xE0) == 0xE0 &&
+            (u8(header,1) ushr 3 and 3)!=1 && (u8(header,2) ushr 4) in 1..14 &&
+            (u8(header,2) ushr 2 and 3)!=3 && (u8(header,3) and 3)!=2) {
             val layer = (u8(header, 1) shr 1) and 0x03
             if (layer in 1..3) {
                 val layerName = when (layer) { 3 -> "Layer I"; 2 -> "Layer II"; else -> "MP3" }
@@ -781,6 +786,17 @@ object FileMagicDetector {
             return FileMagicResult("image/x-rip", "RIPscrip Graphics")
         val ansiControls = Regex("\u001b\\[[0-?]*[ -/]*[@-~]").findAll(terminalSample).take(2).count()
         if (ansiControls >= 2) return FileMagicResult("image/x-ansi", "ANSI Text Art")
+        // A permissive UTF-8 String replaces arbitrary high bytes with glyphs. That
+        // must not turn erased ROM/binary data into a successful text detection.
+        // Keep a partial UTF-8 character at the bounded sample's end permissible.
+        val utf8=StandardCharsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(header,0,sampleLen),
+            java.nio.CharBuffer.allocate(sampleLen),false)
+        if(utf8.isError){
+            val ascii=(0 until sampleLen).count{val b=u8(header,it);b in 0x20..0x7e||b==9||b==10||b==13}
+            val boxes=(0 until sampleLen).count{u8(header,it) in 0xb0..0xdf}
+            val multiline=(0 until sampleLen).any{u8(header,it)==10||u8(header,it)==13}
+            if(ascii*4<sampleLen*3&&!(multiline&&boxes*4>=sampleLen))return null
+        }
         val text = String(header, 0, sampleLen, StandardCharsets.UTF_8).trimStart('\uFEFF').trimStart()
         if (text.startsWith("#!")) {
             val shebang = text.lineSequence().firstOrNull()?.take(48) ?: "#!"
@@ -799,7 +815,7 @@ object FileMagicDetector {
         if (text.startsWith("{") || text.startsWith("[")) {
             return FileMagicResult("application/json", "JSON Text")
         }
-        return FileMagicResult("text/plain", "UTF-8 Plain Text")
+        return FileMagicResult("text/plain",if(utf8.isError)"Legacy 8-bit Plain Text"else "UTF-8 Plain Text")
     }
 
     private fun u8(buf: ByteArray, offset: Int): Int =

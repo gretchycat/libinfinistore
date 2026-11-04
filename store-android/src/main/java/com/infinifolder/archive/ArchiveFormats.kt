@@ -12,7 +12,7 @@ object ArchiveFormats {
         "ntfs", "hfs", "hfsplus", "hfsx",
         "vdi", "qcow2", "vmdk", "vhd", "vhdx",
         "esp", "efi",
-        "mbr", "gpt", "apm", "dd", "dsk", "dump", "bin"
+        "mbr", "gpt", "apm", "dd", "dsk", "dump"
     )
 
     private val COMPRESSION_SUFFIXES = listOf(

@@ -73,6 +73,19 @@ inherit optical-disc artwork. Existing bounded magic detection can still identif
 actual disc/filesystem images and other formats. Container probing remains
 available for BIN files; specific user MIME associations remain authoritative.
 
+A `.bin` extension alone is no longer an `ArchiveFormats` disc-image hint. Hosts
+can send unidentified binary data to a byte explorer while retaining real
+signature-based container detection. MPEG sniffing validates ID3/header fields;
+text sniffing checks bounded UTF-8 validity and legacy text/art evidence before
+accepting malformed high-byte samples. These are identification guards, not full
+audio decoding or filesystem validation.
+
+FLI/FLC/FLIC and MNG aliases resolve to `video/x-fli` and `video/x-mng`; bounded
+magic detects their signatures, including an unclosed FLC header with a strong
+first-frame signature. Canvas owns decoding and conservative header recovery.
+The host can present these animation MIME types on its image surface; recognition
+alone does not promise support for every encoded operation.
+
 RIPscrip `.rip` graphics have the explicit `image/x-rip` association. Bounded text
 magic recognizes strong RIP command prefixes; Canvas owns rendering and the host
 chooses EGA/high-resolution presentation.
