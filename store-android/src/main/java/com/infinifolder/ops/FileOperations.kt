@@ -504,36 +504,52 @@ object FileOperations {
             undo.prepareMoves()
             val metadataWarnings = mutableSetOf<String>()
             val capturedMetadata = mutableMapOf<ResourceRef, TransferMetadata>()
-            fun metadataWarning(source: ResourceEntry, reason: String) {
+            fun metadataFields(metadata: TransferMetadata): String = buildList {
+                if (metadata.mode != null) add("permissions")
+                if (metadata.uid != null) add("owner")
+                if (metadata.gid != null) add("group")
+                if (metadata.modifiedSeconds != null) add("modification time")
+                if (metadata.accessedSeconds != null) add("access time")
+                if (metadata.xattrs != null) add("extended attributes and ACLs")
+            }.joinToString(", ").ifEmpty { "file metadata" }
+            fun metadataWarning(source: ResourceEntry, reason: String, fields: String = "file metadata",
+                                message: String = "Could not preserve $fields.") {
                 if (move) currentSourceRoot?.let { incompleteRoots.add(it) }
                 com.infinifolder.storage.DiagnosticLog.record("transfer.metadata.warning",
-                    "name=${source.metadata.name} reason=$reason sourceRetained=$move")
-                if (metadataWarnings.add("metadata")) onWarning("Some permissions or attributes could not be preserved." +
-                    if (move) " Affected originals will be kept." else " Check the copied files' permissions.")
+                    "name=${source.metadata.name} fields=$fields reason=$reason sourceRetained=true")
+                if (metadataWarnings.add(fields)) onWarning(message +
+                    if (move) " Affected originals will be kept." else "")
             }
             fun captureMetadata(source: ResourceEntry): TransferMetadata? {
                 if (createLinks || partialRecovery || source.ref.providerId in setOf("torrent", "apps")) return null
                 return when (val result = activeProvider.readTransferMetadata(source.ref)) {
                     is ProviderResult.Success -> result.value.also {
                         if (it.mode != null && it.xattrs == null)
-                            metadataWarning(source, "Source provider ${source.ref.providerId} does not export ACLs or extended attributes")
+                            metadataWarning(source, "Source provider ${source.ref.providerId} does not export ACLs or extended attributes",
+                                "extended attributes and ACLs", "The source does not expose ACLs or extended attributes for preservation.")
                     }.takeUnless { it.isEmpty }?.also { capturedMetadata[source.ref] = it }
-                    is ProviderResult.Failure -> { metadataWarning(source, "Cannot read source attributes: ${result.message}"); null }
-                    is ProviderResult.Unsupported -> { metadataWarning(source, "Source provider cannot export attributes"); null }
+                    is ProviderResult.Failure -> { metadataWarning(source, "Cannot read source attributes: ${result.message}",
+                        message = "Could not read the source file's metadata: ${result.message}"); null }
+                    is ProviderResult.Unsupported -> { metadataWarning(source, "Source provider cannot export attributes",
+                        message = "The source does not expose file metadata for preservation."); null }
                 }
             }
             fun preserveMetadata(source: ResourceEntry, destination: ResourceRef, metadata: TransferMetadata?) {
                 if (metadata == null) return
                 if (isCancelled()) throw InterruptedException("Transfer cancelled while preserving metadata")
+                val fields = metadataFields(metadata)
                 when (val applied = activeProvider.applyTransferMetadata(destination, metadata)) {
                     is ProviderResult.Success -> {
                         val actual = activeProvider.readTransferMetadata(destination)
                         if (actual !is ProviderResult.Success || !metadata.matches(actual.value))
-                            metadataWarning(source, "Destination attributes did not match after saving")
+                            metadataWarning(source, "Destination attributes did not match after saving", fields,
+                                "Requested metadata did not match after saving ($fields).")
                         else com.infinifolder.storage.DiagnosticLog.record("transfer.metadata.preserved", "name=${source.metadata.name} destinationProvider=${destination.providerId}")
                     }
-                    is ProviderResult.Unsupported -> metadataWarning(source, "Destination provider ${destination.providerId} cannot retain the requested attributes")
-                    is ProviderResult.Failure -> metadataWarning(source, "Destination attributes failed: ${applied.message}")
+                    is ProviderResult.Unsupported -> metadataWarning(source, "Destination provider ${destination.providerId} cannot retain the requested attributes",
+                        fields, "The destination does not support preserving $fields.")
+                    is ProviderResult.Failure -> metadataWarning(source, "Destination attributes failed: ${applied.message}",
+                        fields, "Could not set $fields on the destination: ${applied.message}")
                 }
             }
 

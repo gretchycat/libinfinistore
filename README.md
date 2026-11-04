@@ -91,3 +91,14 @@ alone does not promise support for every encoded operation.
 RIPscrip `.rip` graphics have the explicit `image/x-rip` association. Bounded text
 magic recognizes strong RIP command prefixes; Canvas owns rendering and the host
 chooses EGA/high-resolution presentation.
+
+## Transfer metadata reporting
+
+Metadata-preservation warnings identify the requested fields: permissions,
+owner/group, modification/access times, or extended attributes/ACLs. Timestamp-only
+metadata must not be reported as a permission failure. Repeated warnings are grouped
+by field set, with per-file reasons retained in diagnostics. An unsupported metadata
+import remains unsupported; no provider is assumed able to set fields it cannot
+verify. Moves retain affected originals, and ordinary copies never delete them.
+The `sourceRetained` diagnostic reflects both cases. UI message suppression belongs
+to the host and must not bypass warning callbacks or preservation/source checks.
