@@ -26,7 +26,7 @@ class RecentExternalLinksProvider(context: Context) : StorageProvider {
     private fun file(ref: ResourceRef): File? {
         if (ref.providerId != id) return null
         val uri = Uri.parse(ref.documentId)
-        if (uri.scheme != SCHEME || uri.authority != null || uri.query != null || uri.fragment != null) return null
+        if (uri.scheme != SCHEME || !uri.authority.isNullOrEmpty() || uri.query != null || uri.fragment != null) return null
         val part = uri.path.orEmpty().removePrefix("/")
         return if (part.isEmpty()) directory else if (part.matches(Regex("[0-9a-f]{64}\\.iflink"))) File(directory, part) else null
     }
@@ -59,7 +59,7 @@ class RecentExternalLinksProvider(context: Context) : StorageProvider {
         } finally { staged.delete() }
         return entry(file)
     }
-    override fun refForUri(uri: Uri) = if (uri.scheme == SCHEME && uri.authority == null) ResourceRef(id, uri.toString()) else null
+    override fun refForUri(uri: Uri) = if (uri.scheme == SCHEME && uri.authority.isNullOrEmpty()) ResourceRef(id, uri.toString()) else null
     override fun deviceIdentity(ref: ResourceRef) = id
     override fun parent(ref: ResourceRef): ProviderResult<ResourceRef?> = ProviderResult.Success(if (file(ref) == directory) null else ResourceRef(id, ROOT.toString()))
     override fun stat(ref: ResourceRef): ProviderResult<ResourceEntry> = file(ref)?.takeIf { it.exists() }?.let { ProviderResult.Success(entry(it)) }
