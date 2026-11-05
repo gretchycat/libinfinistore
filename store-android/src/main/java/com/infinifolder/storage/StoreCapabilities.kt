@@ -44,6 +44,7 @@ class StoreCapabilityProvider : CapabilityProvider {
         BuiltinStorageCapabilityHandler("apps","Installed applications",setOf("apps"),true) { com.infinifolder.apps.AppsStorageProvider(it) },
         BuiltinStorageCapabilityHandler("links","Container links",setOf("container-links"),false) { ContainerLinksProvider(it) },
         BuiltinStorageCapabilityHandler("partial-downloads","Unfinished downloads",setOf("partial-downloads"),true) { PartialDownloadsProvider(it) },
+        BuiltinStorageCapabilityHandler("recent-external-links","Recent external links",setOf("recent-external-links"),true) { RecentExternalLinksProvider(it) },
         BuiltinStorageCapabilityHandler("torrent","BitTorrent",setOf("magnet","torrent"),true) { com.infinifolder.torrent.MagnetStorageProvider(it) },
         ProtocolCapabilityHandler(com.infinifolder.sftp.SftpProviderFactory.sourceType,setOf("sftp","ssh","sshfs")) { c,l ->com.infinifolder.sftp.SftpProviderFactory(c,l) },
         ProtocolCapabilityHandler(com.infinifolder.ftp.FtpProviderFactory.sourceType,setOf("ftp","ftps")) { c,l ->com.infinifolder.ftp.FtpProviderFactory(c,l) },
