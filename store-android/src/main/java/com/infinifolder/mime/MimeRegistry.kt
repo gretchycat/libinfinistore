@@ -94,6 +94,7 @@ object MimeRegistry {
         "css" to "text/css", "scss" to "text/x-scss", "sass" to "text/x-sass", "less" to "text/x-less",
         "sql" to "application/sql", "toml" to "application/toml", "jsonc" to "application/json",
         "xsd" to "application/xml", "xsl" to "application/xml", "xslt" to "application/xml", "plist" to "application/xml",
+        "mindnodetouch" to "application/x-mindnode-touch",
         "diff" to "text/x-patch", "patch" to "text/x-patch", "mk" to "text/x-makefile", "mak" to "text/x-makefile",
         "cmake" to "text/x-cmake", "gradle" to "text/x-groovy", "groovy" to "text/x-groovy",
         "mobi" to "application/x-mobipocket-ebook", "azw" to "application/vnd.amazon.ebook", "azw3" to "application/vnd.amazon.mobi8-ebook", "prc" to "application/x-mobipocket-ebook",
