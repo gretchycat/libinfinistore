@@ -10,7 +10,15 @@ data class SmbConfig(
     val isGuest: Boolean = false,
     val initialShare: String? = null,
     val initialPath: String = "/"
-)
+) {
+    val rootPath get() = rootPath(initialShare, initialPath)
+    companion object {
+        fun rootPath(share: String?, path: String?): String {
+            val parts = listOfNotNull(share?.trim('/')?.takeIf { it.isNotBlank() }, path?.trim('/')?.takeIf { it.isNotBlank() })
+            return "/" + parts.joinToString("/")
+        }
+    }
+}
 
 data class SmbCredentials(
     val password: String? = null

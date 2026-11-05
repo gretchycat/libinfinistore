@@ -104,18 +104,20 @@ class SmbStorageProvider(
 
     override fun list(parent: ResourceRef): ProviderResult<List<ResourceEntry>> {
         var remotePath = "/"
+        var connected = false
         return try {
             val uri = Uri.parse(parent.documentId)
             val connId = SmbUri.getConnectionId(uri)
             remotePath = SmbUri.getRemotePath(uri)
             val (config, creds) = resolveConfigAndCredentials(connId)
 
-            if (remotePath == "/" && !config.initialShare.isNullOrBlank()) {
-                remotePath = "/${config.initialShare.trim('/')}"
-            }
+            if (remotePath == "/") remotePath = config.rootPath
 
             val smbFile = clientPool.getSmbFile(config, creds, remotePath, isDirectory = true)
-            val files = smbFile.listFiles() ?: emptyArray()
+            val files = smbFile.use {
+                it.connect(); connected = true
+                it.listFiles() ?: throw IOException("Server returned no directory listing")
+            }
             val list = mutableListOf<ResourceEntry>()
 
             for (item in files) {
@@ -158,6 +160,10 @@ class SmbStorageProvider(
         val msg = e.message ?: ""
         val errorText = if (remotePath == "/" && (msg.contains("0xC000020C") || msg.contains("0xC0000022") || msg.contains("denied", ignoreCase = true) || msg.contains("refused", ignoreCase = true))) {
             "This server restricts public share listing ($msg). Please long-press this server on Home, tap 'Edit connection', and specify a Share name."
+        } else if (connected) {
+            "Server reachable and SMB connected, but cannot list '$remotePath': ${msg.ifEmpty { "Directory access failed" }}"
+        } else if (generateSequence(e) { it.cause }.any { it is jcifs.smb.SmbAuthException }) {
+            "Server reachable, but SMB authentication or share access failed: $msg"
         } else {
             msg.ifEmpty { "Failed to list SMB shares or folders" }
         }

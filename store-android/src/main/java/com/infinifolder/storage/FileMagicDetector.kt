@@ -729,7 +729,7 @@ object FileMagicDetector {
         return when (compressor) {
             OuterCompressor.GZIP -> GzipCompressorInputStream(bis, true)
             OuterCompressor.BZIP2 -> BZip2CompressorInputStream(bis, true)
-            OuterCompressor.XZ -> XZCompressorInputStream(bis, true)
+            OuterCompressor.XZ -> com.infinifolder.archive.DecoderMemory.xz(bis)
             OuterCompressor.ZSTD -> CompressorStreamFactory().createCompressorInputStream(bis)
             OuterCompressor.COMPRESS -> ZCompressorInputStream(bis)
         }

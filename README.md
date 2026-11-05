@@ -102,3 +102,28 @@ import remains unsupported; no provider is assumed able to set fields it cannot
 verify. Moves retain affected originals, and ordinary copies never delete them.
 The `sourceRetained` diagnostic reflects both cases. UI message suppression belongs
 to the host and must not bypass warning callbacks or preservation/source checks.
+
+## Native byte differences and SMB diagnostics
+
+`NativeRandomAccessProvider.openNativeSeekable` is an optional direct-I/O contract;
+`StorageProvider.openNativeSeekable` preserves existing provider interfaces and
+uses ordinary native seekable handles for providers without staged views. SFTP
+implements the optional contract with its existing offset writer. Unsupported
+permits an explicit fallback; permission/transport failures do not.
+
+`BytePatchJournal` writes synced, atomically replaced difference files containing
+source length and sorted offset/original/replacement bytes, bounded to 1 MiB of
+changed bytes. It preflights and merges contiguous ranges with offset I/O,
+verifies writes, attempts offset rollback on failure, and preserves resumable
+pending state. `render` merges into a sequential output for an explicit budgeted
+cache fallback; `export` writes/verifies a new resizable native target. Callers
+retain the journal and merge marker until clearing them durably after success.
+No UI or application initialization is needed. Full-source locking is not claimed.
+
+SMB connection tests now establish reachability, connect the SMB share/session,
+and actually list the configured folder. Failures report the reached stage and
+server error instead of returning success with an access-denied warning. Probes
+use isolated contexts so edited credentials are tested. Explicit authenticated
+connections do not silently fall back to guest. `SmbConfig.rootPath` joins the
+configured share and its initial subfolder consistently for tests and browsing.
+The server's share/filesystem permissions still determine access.

@@ -68,6 +68,23 @@ interface StorageProvider : java.io.Closeable {
     fun move(source: ResourceRef, destination: ResourceRef): ProviderResult<ResourceRef>
 }
 
+/** Optional direct-I/O contract; adding it does not change StorageProvider's JVM interface.
+ * Providers with staged seekable views must return Unsupported instead of staging. */
+interface NativeRandomAccessProvider {
+    fun openNativeSeekable(ref: ResourceRef, writable: Boolean = false): ProviderResult<com.infinifolder.archive.BlockDevice>
+}
+
+fun StorageProvider.openNativeSeekable(ref: ResourceRef, writable: Boolean = false): ProviderResult<com.infinifolder.archive.BlockDevice> {
+    val result = if (this is NativeRandomAccessProvider) this.openNativeSeekable(ref, writable) else openSeekable(ref, writable)
+    if (result is ProviderResult.Success && result.value is StagedBlockCommit) {
+        return try {
+            result.value.close()
+            ProviderResult.Unsupported(if (writable) ResourceCapability.SEEK_WRITE else ResourceCapability.SEEK)
+        } catch (error: Exception) { ProviderResult.Failure("Cannot close a staged random-access fallback", error) }
+    }
+    return result
+}
+
 /** One validation rule for direct backend callers and routed operations. */
 fun validateSeekableResult(result: ProviderResult<com.infinifolder.archive.BlockDevice>,
                                     writable: Boolean, resizable: Boolean = false): ProviderResult<com.infinifolder.archive.BlockDevice> {

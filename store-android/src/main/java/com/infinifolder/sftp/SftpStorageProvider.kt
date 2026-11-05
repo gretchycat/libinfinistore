@@ -20,7 +20,7 @@ class SftpStorageProvider(
     val credentialStore: SftpCredentialStore = SftpCredentialStore(context),
     val clientPool: SftpClientPool = SftpClientPool(),
     private val connectionLookup: (String) -> ProviderConnection?
-) : StorageProvider {
+) : StorageProvider, com.infinifolder.storage.NativeRandomAccessProvider {
 
     override fun close() {
         try { clientPool.close() } finally { synchronized(remoteSubjects) { remoteSubjects.clear() } }
@@ -103,7 +103,10 @@ class SftpStorageProvider(
         }
     } catch (e: Exception) { ProviderResult.Failure(e.message ?: "Cannot open remote random access", e) }
 
-    /** Direct remote random-write target for new files; ordinary image edits remain staged. */
+    override fun openNativeSeekable(ref: ResourceRef, writable: Boolean): ProviderResult<com.infinifolder.archive.BlockDevice> =
+        if (writable) openTransferTarget(ref) else openSeekable(ref, false)
+
+    /** Direct offset writes without truncating; existing files and transfer targets are supported. */
     override fun openTransferTarget(ref: ResourceRef): ProviderResult<com.infinifolder.archive.BlockDevice> = try {
         val uri = Uri.parse(ref.documentId)
         val (config, creds) = resolveConfigAndCredentials(SftpUri.getConnectionId(uri))

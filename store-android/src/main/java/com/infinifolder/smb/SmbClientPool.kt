@@ -30,7 +30,8 @@ class SmbClientPool(
                 setProperty("jcifs.smb.client.ipcSigningEnforced", "false")
                 setProperty("jcifs.smb.client.signingEnforced", "false")
                 setProperty("jcifs.smb.client.signingPreferred", "false")
-                setProperty("jcifs.smb.client.allowGuestFallback", "true")
+                setProperty("jcifs.smb.client.allowGuestFallback", (config.isGuest || config.username.isBlank() ||
+                    config.username.equals("guest", true) || config.username.equals("anonymous", true)).toString())
             }
             val baseConfig = PropertyConfiguration(props)
             val baseContext = BaseContext(baseConfig)
@@ -66,50 +67,37 @@ class SmbClientPool(
         return SmbFile(url, context)
     }
 
-    fun testConnection(config: SmbConfig, creds: SmbCredentials): Result<String> = try {
-        // Fast TCP port test first to give instant feedback if host/port is unreachable
-        Socket().use { socket ->
-            socket.connect(InetSocketAddress(config.host, config.port), connectTimeoutMs)
-        }
-
-        // Test SMB handshake / session connect
-        val targetPath = if (!config.initialShare.isNullOrBlank()) "/${config.initialShare.trim('/')}/" else "/"
-        val targetFile = getSmbFile(config, creds, targetPath, isDirectory = true)
-        targetFile.connect()
-
-        val summary = StringBuilder("Connected successfully to SMB server ${config.host}:${config.port}!")
-
-        if (!config.initialShare.isNullOrBlank()) {
-            try {
-                if (targetFile.exists()) {
-                    summary.append("\nShare '${config.initialShare}' is verified and accessible.")
-                } else {
-                    summary.append("\nNote: Share '${config.initialShare}' was not found on this server.")
-                }
-            } catch (e: Throwable) {
-                summary.append("\nNote: Share '${config.initialShare}' could not be accessed (${e.message ?: "Restricted"}). Please verify share name and permissions.")
+    fun testConnection(config: SmbConfig, creds: SmbCredentials): Result<String> {
+        // Probe input credentials, never the cached credentials of an earlier test.
+        val probe = config.copy(id = "smb-probe-${java.util.UUID.randomUUID()}")
+        var reachable = false
+        var connected = false
+        return try {
+            Socket().use { it.connect(InetSocketAddress(config.host, config.port), connectTimeoutMs) }
+            reachable = true
+            val target = getSmbFile(probe, creds, config.rootPath, isDirectory = true)
+            val files = target.use {
+                it.connect()
+                connected = true
+                // A handshake/exists check does not demonstrate permission to list.
+                it.listFiles() ?: throw IOException("Server returned no directory listing")
             }
-        } else {
-            // Attempt to enumerate shares via MSRPC
-            try {
-                val shares = targetFile.listFiles()
-                val shareNames = shares?.map { it.name.trimEnd('/') }?.filter { it.isNotEmpty() && !it.endsWith("$") } ?: emptyList()
-                if (shareNames.isNotEmpty()) {
-                    summary.append("\nFound ${shareNames.size} share(s): ${shareNames.take(6).joinToString(", ")}")
-                    if (shareNames.size > 6) summary.append(", …")
-                }
-            } catch (e: Throwable) {
-                val msg = e.message ?: ""
-                if (msg.contains("0xC000020C") || msg.contains("0xC0000022") || msg.contains("denied", ignoreCase = true) || msg.contains("refused", ignoreCase = true)) {
-                    summary.append("\n\nNote: This server restricts anonymous share enumeration. Please enter your Share name in the connection dialog to view files.")
-                } else {
-                    summary.append("\n\nNote: Could not enumerate shares (${e.message}). You can still access files by specifying a Share name directly.")
-                }
+            val count = files.size
+            files.forEach { runCatching { it.close() } }
+            com.infinifolder.storage.DiagnosticLog.record("smb.test.succeeded", "scope=directory-list items=$count")
+            Result.success("Server reachable. SMB connected and listed '${config.rootPath}' successfully ($count items).")
+        } catch (error: Exception) {
+            com.infinifolder.storage.DiagnosticLog.record("smb.test.failed", "reachable=$reachable connected=$connected scope=directory-list", error)
+            val status = when {
+                !reachable -> "Server not reachable on the configured SMB port."
+                !connected -> "Server reachable, but SMB connection, authentication or share access failed."
+                else -> "Server reachable and SMB connected, but directory listing failed."
             }
-        }
-        Result.success(summary.toString())
-    } catch (e: Throwable) {
-        Result.failure(e)
+            val hint = if (config.rootPath == "/")
+                "The server may restrict share enumeration. Specify an accessible share and folder."
+            else "Check the configured share/folder, credentials and directory-list permissions."
+            Result.failure(IOException("$status\n\nFolder: ${config.rootPath}\n${error.message ?: error.javaClass.simpleName}\n\n$hint", error))
+        } finally { disconnect(probe.id) }
     }
 
     fun disconnect(connectionId: String) {

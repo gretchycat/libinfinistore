@@ -105,6 +105,8 @@ class SftpBlockDevice(
         check(!closed) { "SFTP random-write device is closed" }
         val started = android.os.SystemClock.uptimeMillis()
         try { clientPool.withChannel(config, credentials) { sftp ->
+            if (sftp.lstat(remotePath).size != currentSize)
+                throw IOException("SFTP file length changed before the offset write")
             // JSch's RESUME stream opens without truncation and initializes its
             // SFTP write offset to (remote size + supplied offset). The negative
             // delta positions writes at an arbitrary byte inside the pre-sized file.
