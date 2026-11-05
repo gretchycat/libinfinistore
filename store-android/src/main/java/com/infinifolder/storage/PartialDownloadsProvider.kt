@@ -85,7 +85,8 @@ class PartialDownloadsProvider(context: Context) : StorageProvider {
                 if (found.remove(entry.ref) != null) changed = true
                 return@forEach
             }
-            val kind = if (byName.containsKey("$name.aria2")) "aria2 partial data" else classify(name)
+            val kind = if (byName.containsKey("$name.aria2")) "aria2 partial data" else
+                classify(name, entry.metadata.mimeType)
             if (kind == null) {
                 if (complete && found[entry.ref]?.parent == parent && found.remove(entry.ref) != null) changed = true
                 return@forEach
@@ -130,7 +131,7 @@ class PartialDownloadsProvider(context: Context) : StorageProvider {
         if (Uri.parse(ref.documentId).path.orEmpty().trim('/').isEmpty()) null else ResourceRef(id, ROOT.toString()))
     @Synchronized override fun stat(ref: ResourceRef): ProviderResult<ResourceEntry> =
         if (Uri.parse(ref.documentId).path.orEmpty().trim('/').isEmpty()) ProviderResult.Success(
-            ResourceEntry(ResourceRef(id, ROOT.toString()), ResourceMetadata("Partial downloads", "vnd.android.document/directory", null, null, true, canWrite = false,
+            ResourceEntry(ResourceRef(id, ROOT.toString()), ResourceMetadata("Unfinished downloads", "vnd.android.document/directory", null, null, true, canWrite = false,
                 operationHints = mapOf(ResourceCapability.DELETE to Support.UNSUPPORTED, ResourceCapability.MOVE to Support.UNSUPPORTED)), ROOT))
         else find(ref)?.let { ProviderResult.Success(linkedEntry(it)) }
             ?: ProviderResult.Failure("Unknown partial-download link")
@@ -158,6 +159,9 @@ class PartialDownloadsProvider(context: Context) : StorageProvider {
         const val SCHEME = "partial-downloads"
         val ROOT: Uri = Uri.parse("partial-downloads:///")
         const val MIME = "application/vnd.infinifolder.partial-download"
+        fun classify(name: String, mimeType: String?): String? =
+            if (mimeType == "application/vnd.infinifolder.torrent-partial" || mimeType == MIME)
+                "Download marked incomplete by its provider" else classify(name)
         fun classify(name: String): String? {
             val lower = name.lowercase(java.util.Locale.ROOT)
             return when {
@@ -165,6 +169,7 @@ class PartialDownloadsProvider(context: Context) : StorageProvider {
                 lower.endsWith(".!qb") -> "qBittorrent partial download"
                 lower.endsWith(".!ut") -> "µTorrent partial download"
                 lower.endsWith(".crdownload") -> "Chromium partial download"
+                lower.endsWith(".download") -> "Possible partial download (.download)"
                 lower.endsWith(".aria2") -> "aria2 control file"
                 lower.endsWith(".part.met") -> "eMule/aMule control file"
                 lower.endsWith(".part") || lower.endsWith(".partial") -> "Possible partial download (ambiguous extension)"
