@@ -146,17 +146,8 @@ class AppDocumentSources(private val context: Context) {
         }.getOrDefault(false)
     }
 
-    private fun queryRoots(authority: String): List<Pair<String, String>> = runCatching {
-        buildList {
-            resolver.query(DocumentsContract.buildRootsUri(authority),
-                arrayOf(DocumentsContract.Root.COLUMN_DOCUMENT_ID, DocumentsContract.Root.COLUMN_TITLE), null, null, null)?.use { cursor ->
-                while (cursor.moveToNext()) {
-                    val id = cursor.getString(0) ?: continue
-                    add(id to cursor.getString(1).orEmpty())
-                }
-            }
-        }
-    }.getOrDefault(emptyList())
+    private fun queryRoots(authority: String): List<Pair<String, String>> =
+        DocumentRootInfo.query(context, authority).map { it.documentId to it.title }
 
     private fun key(authority: String, id: String?) =
         "app_provider_" + Uri.encode(authority) + (id?.let { "_" + Uri.encode(it) } ?: "")

@@ -127,3 +127,22 @@ use isolated contexts so edited credentials are tested. Explicit authenticated
 connections do not silently fall back to guest. `SmbConfig.rootPath` joins the
 configured share and its initial subfolder consistently for tests and browsing.
 The server's share/filesystem permissions still determine access.
+
+## Android roots and observed target availability
+
+`DocumentRootInfo.query(context, authority)` returns provider document IDs, titles,
+optional local-only flags and optional icon resource names. It opens no document
+and grants no permission. Hosts must query on workers with a deadline, since
+third-party providers may block. Inaccessible/missing metadata returns an empty
+list; unknown flags remain unknown. `AppDocumentSources` uses the same query.
+This is platform metadata, independent of any host theme or application core.
+
+`NetworkConnectionStatus.target(ResourceRef)` identifies a canonical remote path;
+`state(Target)` combines connection state with exact target availability.
+`accessible`/`inaccessible` record request-versioned browse/read outcomes, bounded
+to 256 paths per connection. Permission/missing-target failures do not mark other
+folders on a reachable server offline. DNS/socket/timeout failures remain
+connection-wide; unsupported work and cancellation do not imply unavailability.
+Neutral observations and buffered reads do not assert a reconnection. Existing
+key-only APIs and listeners remain available. SMB tests publish their result
+under the caller's connection ID, independently of the temporary probe context.

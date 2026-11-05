@@ -6,6 +6,8 @@ import java.util.concurrent.CopyOnWriteArraySet
 /** Last observed transport state, per saved connection. No polling or credential storage. */
 object NetworkConnectionStatus {
     data class Key(val providerId: String, val connectionId: String)
+    data class Target(val key: Key, val path: String)
+    private data class Access(val version: Long, val unavailable: Boolean)
     enum class State { UNKNOWN, CONNECTED, DISCONNECTED, RECONNECTING }
     data class Request internal constructor(val key: Key, val version: Long)
     private class Entry {
@@ -13,6 +15,9 @@ object NetworkConnectionStatus {
         var resultVersion = 0L
         var state = State.UNKNOWN
         val reconnects = mutableSetOf<Long>()
+        val targets = object : LinkedHashMap<String, Access>(256, .75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Access>?) = size > 256
+        }
     }
     private val lock = Any()
     private val entries = mutableMapOf<Key, Entry>()
@@ -22,6 +27,38 @@ object NetworkConnectionStatus {
     private fun state(entry: Entry): State = if (entry.reconnects.any { it > entry.resultVersion })
         State.RECONNECTING else entry.state
     fun state(key: Key): State = synchronized(lock) { entries[key]?.let(::state) ?: State.UNKNOWN }
+    fun state(target: Target): State = synchronized(lock) {
+        val entry = entries[target.key] ?: return@synchronized State.UNKNOWN
+        val connection = state(entry)
+        if (connection == State.DISCONNECTED || connection == State.RECONNECTING) connection
+        else if (entry.targets[target.path]?.unavailable == true) State.DISCONNECTED else connection
+    }
+    /** Resolve the canonical provider reference, not a shortcut filename or host alias. */
+    fun target(ref: com.infinifolder.model.ResourceRef): Target? {
+        if (ref.providerId !in setOf("sftp", "ftp", "smb", "webdav")) return null
+        val uri = android.net.Uri.parse(ref.documentId)
+        val id = uri.authority?.takeIf { it.isNotBlank() } ?: return null
+        val path = uri.encodedPath.orEmpty().trimEnd('/').ifEmpty { "/" } +
+            (uri.encodedQuery?.let { "?$it" } ?: "") + (uri.encodedFragment?.let { "#$it" } ?: "")
+        return Target(Key(ref.providerId, id), path)
+    }
+    private fun access(request: Request, path: String, unavailable: Boolean) {
+        val changed = synchronized(lock) {
+            val entry = entries.getValue(request.key)
+            val previous = entry.targets[path]
+            if (previous != null && previous.version > request.version) false
+            else {
+                entry.targets[path] = Access(request.version, unavailable)
+                (previous?.unavailable ?: false) != unavailable
+            }
+        }
+        if (changed) notify(request.key)
+    }
+    fun accessible(request: Request, path: String) = access(request, path, false)
+    fun inaccessible(request: Request, path: String, error: Throwable?, message: String = "") {
+        // Transport loss is connection-wide; denied/missing targets are path-specific.
+        if (!cancelled(error) && !isTransportFailure(error, message)) access(request, path, true)
+    }
     private fun notify(key: Key) { listeners.forEach { runCatching { it(key) } } }
 
     fun begin(key: Key, reconnect: Boolean = false, indicateRetry: Boolean = true): Request {
@@ -58,14 +95,22 @@ object NetworkConnectionStatus {
         }
     }
     fun succeeded(request: Request) = finish(request, State.CONNECTED)
+    fun observed(request: Request) = finish(request, null)
     fun failed(request: Request, error: Throwable?, message: String = "") =
         finish(request, if (isTransportFailure(error, message)) State.DISCONNECTED else null)
 
     /** Existing buffered data is not proof of a newly reconnected transport. */
     fun <T> watchIo(key: Key, work: () -> T): T {
+        return watchIo(key, null, work)
+    }
+    fun <T> watchIo(key: Key, path: String?, work: () -> T): T {
         val request = begin(key, indicateRetry = false)
         return try { work().also { finish(request, null) } }
-        catch (error: Exception) { failed(request, error); throw error }
+        catch (error: Exception) {
+            failed(request, error)
+            if (path != null) inaccessible(request, path, error)
+            throw error
+        }
     }
 
     private fun cancelled(error: Throwable?): Boolean = generateSequence(error) { it.cause }.take(16).any {
@@ -75,13 +120,15 @@ object NetworkConnectionStatus {
     }
     fun isTransportFailure(error: Throwable?, message: String = ""): Boolean {
         if (cancelled(error)) return false
+        if (generateSequence(error) { it.cause }.take(16).any { it is jcifs.smb.SmbAuthException || it is java.nio.file.AccessDeniedException || it is SecurityException }) return false
         return generateSequence(error) { it.cause }.take(16).any {
             it is java.net.UnknownHostException || it is java.net.SocketException ||
                 it is java.net.SocketTimeoutException || it is java.io.EOFException
         } || (sequenceOf(message) + generateSequence(error) { it.cause }.take(16).map { it.message.orEmpty() }).any { text ->
             listOf("session is down", "session is not connected", "inputstream is closed",
                 "connection reset", "connection refused", "connection timed out", "network is unreachable",
-                "no route to host", "broken pipe", "socket is closed").any { text.contains(it, true) }
+                "no route to host", "broken pipe", "socket is closed", "failed to connect",
+                "failed to resolve", "host is unreachable", "network name is no longer available").any { text.contains(it, true) }
         }
     }
 

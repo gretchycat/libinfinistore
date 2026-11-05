@@ -68,6 +68,9 @@ class SmbClientPool(
     }
 
     fun testConnection(config: SmbConfig, creds: SmbCredentials): Result<String> {
+        val targetStatus = com.infinifolder.storage.NetworkConnectionStatus.target(
+            com.infinifolder.model.ResourceRef("smb", SmbUri.build(config.id, config.rootPath).toString()))!!
+        val observation = com.infinifolder.storage.NetworkConnectionStatus.begin(targetStatus.key)
         // Probe input credentials, never the cached credentials of an earlier test.
         val probe = config.copy(id = "smb-probe-${java.util.UUID.randomUUID()}")
         var reachable = false
@@ -84,9 +87,15 @@ class SmbClientPool(
             }
             val count = files.size
             files.forEach { runCatching { it.close() } }
+            com.infinifolder.storage.NetworkConnectionStatus.succeeded(observation)
+            com.infinifolder.storage.NetworkConnectionStatus.accessible(observation, targetStatus.path)
             com.infinifolder.storage.DiagnosticLog.record("smb.test.succeeded", "scope=directory-list items=$count")
             Result.success("Server reachable. SMB connected and listed '${config.rootPath}' successfully ($count items).")
         } catch (error: Exception) {
+            if (connected && !com.infinifolder.storage.NetworkConnectionStatus.isTransportFailure(error))
+                com.infinifolder.storage.NetworkConnectionStatus.succeeded(observation)
+            else com.infinifolder.storage.NetworkConnectionStatus.failed(observation, error)
+            com.infinifolder.storage.NetworkConnectionStatus.inaccessible(observation, targetStatus.path, error)
             com.infinifolder.storage.DiagnosticLog.record("smb.test.failed", "reachable=$reachable connected=$connected scope=directory-list", error)
             val status = when {
                 !reachable -> "Server not reachable on the configured SMB port."
