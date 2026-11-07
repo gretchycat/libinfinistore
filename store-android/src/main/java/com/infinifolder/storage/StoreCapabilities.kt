@@ -2,6 +2,7 @@ package com.infinifolder.storage
 
 import android.content.Context
 import android.net.Uri
+import com.infinifolder.mime.MimeRegistry
 import io.github.gretchycat.infinistream.*
 
 /** A protocol module owns its URI rules and factory. Discovery does not connect. */
@@ -96,7 +97,7 @@ private class BoundStorageCapabilityHandler(private val provider:StorageProvider
 
 /** Standard bounded probe service; the compatibility detector remains the single implementation. */
 private class StoreMagicHandler:CapabilityHandler,FormatProbe {
-    override val descriptor=HandlerDescriptor("store.magic","store","Bounded content identification",emptyList(),setOf("identify"),
+    override val descriptor=HandlerDescriptor("store.magic","store","File type identification",MimeRegistry.declaredFormats(),setOf("identify"),
         metadata=setOf("mimeType","description","confidence"),limitations=listOf("Android service; bounded legacy identification is provisional; parser validation is still required"))
     override fun availability()=if(android.os.Build.VERSION.SDK_INT>=26)HandlerAvailability()
         else HandlerAvailability(AvailabilityState.UNAVAILABLE,"Android storage identification runtime unavailable")

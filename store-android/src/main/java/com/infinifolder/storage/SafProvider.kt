@@ -88,14 +88,21 @@ class SafProvider(private val resolver: ContentResolver) : StorageProvider {
             descriptor = null // Ownership transferred to device.
             ProviderResult.Success(com.infinifolder.archive.RangeCachedBlockDevice(device))
         } catch (e: Exception) {
-            val nonSeekable = generateSequence<Throwable>(e) { it.cause }.take(16).any {
-                (it is android.system.ErrnoException && it.errno == android.system.OsConstants.ESPIPE) ||
-                    it is UnsupportedOperationException
-            }
+            val nonSeekable = isNonSeekableDescriptorError(e)
             if (nonSeekable) ProviderResult.Unsupported(if (writable) ResourceCapability.SEEK_WRITE else ResourceCapability.SEEK)
             else ProviderResult.Failure(e.message ?: "Cannot open document descriptor", e)
         } finally { descriptor?.close() }
     }
+
+    /** Pipe-backed content providers often surface ESPIPE as a plain IOException("Illegal seek"). */
+    private fun isNonSeekableDescriptorError(error: Throwable): Boolean =
+        generateSequence(error) { it.cause }.take(16).any { cause ->
+            if (cause is android.system.ErrnoException && cause.errno == android.system.OsConstants.ESPIPE) return@any true
+            if (cause is UnsupportedOperationException) return@any true
+            val message = cause.message?.lowercase(java.util.Locale.ROOT).orEmpty()
+            message.contains("illegal seek") || message.contains("not seekable") ||
+                message.contains("seek on pipe") || (message.contains("pipe") && message.contains("seek"))
+        }
 
     override fun list(parent: ResourceRef): ProviderResult<List<ResourceEntry>> = try {
         val parentUri = Uri.parse(parent.documentId)

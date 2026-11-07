@@ -30,7 +30,13 @@ owned outputs and typed processors; do not duplicate decoders in consumers.
 
 ## Limits
 
-General protocol reports are CONDITIONAL. Bound provider probes inspect actual resource operation flags; a scheme match alone never grants writes. Unknown protocol secret fields require backend-owned secure credential storage. Registration withdrawal does not invalidate already opened provider/stream leases. Static MIME seeds are compatibility/presentation defaults; runtime handler associations supplement them without replacing intentional mappings.
+General protocol reports are CONDITIONAL. Bound provider probes inspect actual resource operation flags; a scheme match alone never grants writes. Unknown protocol secret fields require backend-owned secure credential storage. Registration withdrawal does not invalidate already opened provider/stream leases.
+
+`store.magic` reports the explicit filename associations in
+`MimeRegistry.declaredFormats()` together with bounded content identification.
+Host Android intent registration consumes this descriptor through the runtime
+capability catalog, rather than copying Store's association map. Other linked
+handlers retain their own overlapping MIME and extension declarations.
 
 Discovery is for installed classpath components, not a downloaded code loader.
 Android/native display and live remote behavior require device checks in addition

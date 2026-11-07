@@ -5,6 +5,8 @@ import java.util.Locale
 object ArchiveFormats {
     /** Built-in hints only. Runtime extension handlers register their own format descriptors. */
     val knownExtensions:Set<String> get() = SIMPLE_EXTENSIONS + COMPOUND_EXTENSIONS.map { it.removePrefix(".") }
+    /** MIME selectors accepted by the built-in archive and filesystem-image readers. */
+    val knownMimeTypes:Set<String> get() = ARCHIVE_MIME_TYPES
     private val DISC_BASE_EXTENSIONS = setOf(
         "iso", "cdr",
         "img", "raw", "ima", "flp",
@@ -95,8 +97,9 @@ object ArchiveFormats {
         if (mimeType.isNotEmpty() && ARCHIVE_MIME_TYPES.contains(com.infinifolder.mime.MimeRegistry.normalize(mimeType))) return true
         val resource=io.github.gretchycat.infinistream.CapabilityResource(io.github.gretchycat.infinistream.StreamMetadata(
             name=name,content=io.github.gretchycat.infinistream.ContentType(mimeType=mimeType)))
-        return io.github.gretchycat.infinistream.RuntimeCapabilities.installed().descriptors().any { handler ->
-            handler.id!="vault.builtin" && handler.attributes["container"]=="true" && handler.formats.any { it.score(resource)>0 } }
+        return io.github.gretchycat.infinistream.RuntimeCapabilities.installed()
+            .supportedFormats(io.github.gretchycat.infinistream.Operations.LIST)
+            .any { it.attributes["container"]=="true" && it.format.score(resource)>0 }
     }
 
     fun isPackagedFormat(name: String, mimeType: String = ""): Boolean =

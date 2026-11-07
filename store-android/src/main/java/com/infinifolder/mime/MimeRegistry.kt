@@ -1,6 +1,7 @@
 package com.infinifolder.mime
 
 import java.util.Locale
+import io.github.gretchycat.infinistream.FormatSupport
 
 /** Application identity and its packaging are separate parts of one classification. */
 object MimeRegistry {
@@ -40,6 +41,7 @@ object MimeRegistry {
         "odp" to PackageFormat("application/vnd.oasis.opendocument.presentation", "zip")
     )
     private val aliases = mapOf("application/x-mobi8-ebook" to "application/vnd.amazon.mobi8-ebook", "application/x-fictionbook" to "application/x-fictionbook+xml", "application/x-java-archive" to "application/java-archive", "application/x-zip-compressed" to "application/zip",
+        "application/iflink" to "application/vnd.infinifolder.shortcut+json", "application/x-shortcut" to "application/vnd.infinifolder.shortcut+json",
         "application/x-gzip" to "application/gzip", "text/xml" to "application/xml", "text/x-markdown" to "text/markdown",
         // Keep established app identities while accepting common provider spellings.
         "text/x-c" to "text/x-csrc", "text/x-c++" to "text/x-c++src",
@@ -161,8 +163,32 @@ object MimeRegistry {
         "ntfs" to "application/x-raw-disk-image",
         "hfs" to "application/x-raw-disk-image", "hfsplus" to "application/x-raw-disk-image", "hfsx" to "application/x-raw-disk-image",
         "taz" to "application/x-compress", "z" to "application/x-compress",
-        "lnk" to "application/x-ms-shortcut", "iflink" to "application/vnd.infinifolder.shortcut+json"
+        "lnk" to "application/x-ms-shortcut", "iflink" to "application/vnd.infinifolder.shortcut+json",
+        "torrent" to "application/x-bittorrent"
     )
+
+    /**
+     * Explicit filename identities owned by Store, exposed through its runtime
+     * capability provider so host Android filters do not copy this map.
+     */
+    fun declaredFormats(): List<FormatSupport> {
+        val byMime = linkedMapOf<String, MutableSet<String>>()
+        fun add(extension: String, mime: String) {
+            byMime.getOrPut(normalize(mime)) { linkedSetOf() }.add(extension.lowercase(Locale.ROOT))
+        }
+        extensions.forEach { (extension, mime) -> add(extension, mime) }
+        packages.forEach { (extension, format) -> add(extension, format.mime) }
+        // Numbered split volumes are handled by the same RAR/ARJ routes as
+        // their base archive extension.
+        (0..99).forEach { volume ->
+            add("r${volume.toString().padStart(2, '0')}", "application/vnd.rar")
+            add("a${volume.toString().padStart(2, '0')}", "application/x-arj")
+        }
+        return byMime.entries.sortedBy { it.key }.map { (mime, fileExtensions) ->
+            FormatSupport(mimeTypes = setOf(mime), extensions = fileExtensions.toSet())
+        }
+    }
+
     fun normalize(mime: String?): String {
         val value = mime.orEmpty().substringBefore(';').trim().lowercase(Locale.ROOT)
         return aliases[value] ?: value.ifEmpty { "application/octet-stream" }
