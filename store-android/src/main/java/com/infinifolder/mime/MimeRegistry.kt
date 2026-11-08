@@ -76,7 +76,7 @@ object MimeRegistry {
         "ipp" to "text/x-c++hdr", "tcc" to "text/x-c++src", "inl" to "text/x-c++hdr",
         "pas" to "text/x-pascal", "pp" to "text/x-pascal",
         "ada" to "text/x-adasrc", "adb" to "text/x-adasrc", "ads" to "text/x-adasrc",
-        "bas" to "text/x-basic", "bi" to "text/x-basic", "vb" to "text/x-vb", "vbs" to "text/vbscript",
+        "bas" to "text/x-basic", "bi" to "text/x-basic", "vbs" to "text/vbscript",
         "bat" to "application/x-bat", "cmd" to "application/x-bat", "ps1" to "application/x-powershell",
         "java" to "text/x-java", "kt" to "text/x-kotlin", "kts" to "text/x-kotlin",
         "cs" to "text/x-csharp", "scala" to "text/x-scala", "sc" to "text/x-scala",
@@ -157,6 +157,15 @@ object MimeRegistry {
         // GEN commonly holds a Sega Genesis ROM. A specific non-audio identity
         // prevents raw ROM vectors from being mistaken for an MPEG frame sync.
         "gen" to "application/x-genesis-rom",
+        // These binary extensions belong to ROM containers; Visual Basic remains
+        // available through .vbs and its text associations without claiming .vb.
+        "sfc" to "application/x-snes-rom", "smc" to "application/x-snes-rom",
+        "swc" to "application/x-snes-rom", "fig" to "application/x-snes-rom",
+        "vb" to "application/x-virtual-boy-rom", "vboy" to "application/x-virtual-boy-rom",
+        "pce" to "application/x-pce-rom", "sgx" to "application/x-supergrafx-rom",
+        "j64" to "application/x-atari-jaguar-rom", "abs" to "application/x-atari-jaguar-executable",
+        "gxb" to "application/x-gp32-executable", "axf" to "application/x-gp32-executable",
+        "fxe" to "application/x-gp32-encrypted-executable",
         // BIN is generic binary data; actual disc/filesystem signatures may refine it.
         "bin" to "application/octet-stream",
         "iso" to "application/x-iso9660-image", "cdr" to "application/x-iso9660-image", "img" to "application/x-raw-disk-image", "raw" to "application/x-raw-disk-image",
@@ -165,6 +174,13 @@ object MimeRegistry {
         "zst" to "application/zstd", "tzst" to "application/zstd",
         "cab" to "application/vnd.ms-cab-compressed",
         "rar" to "application/vnd.rar", "cbr" to "application/vnd.rar", "arj" to "application/x-arj",
+        "d64" to "application/x-commodore-d64", "d71" to "application/x-commodore-d71",
+        "d81" to "application/x-commodore-d81", "atr" to "application/x-atari-atr",
+        "3do" to "application/x-3do-opera-image", "opera" to "application/x-3do-opera-image",
+        "ssd" to "application/x-acorn-dfs-disk", "dsd" to "application/x-acorn-dfs-disk",
+        "do" to "application/x-apple2-disk-image", "po" to "text/x-gettext-translation",
+        "st" to "application/x-raw-disk-image", "dsk" to "application/x-raw-disk-image",
+        "con" to "application/x-xbox-stfs-package", "live" to "application/x-xbox-stfs-package", "pirs" to "application/x-xbox-stfs-package",
         "ntfs" to "application/x-raw-disk-image",
         "hfs" to "application/x-raw-disk-image", "hfsplus" to "application/x-raw-disk-image", "hfsx" to "application/x-raw-disk-image",
         "taz" to "application/x-compress", "z" to "application/x-compress",
@@ -212,8 +228,21 @@ object MimeRegistry {
             if (extension[0] == 'r') return "application/vnd.rar"
             if (extension[0] == 'a') return "application/x-arj"
         }
-        val registered=runtimeAssociations().entries.filter { name.lowercase(Locale.ROOT).endsWith(".${it.key}") }
-            .sortedByDescending { it.key.length }.firstOrNull()?.value?.singleOrNull()
+        // Runtime mappings can cover hundreds of extensions. Guessing a type is
+        // on the listing/icon path, so inspect only suffixes present in this name
+        // instead of scanning the whole registry for every file in a directory.
+        val lowerName = name.lowercase(Locale.ROOT)
+        val associations = runtimeAssociations()
+        var dot = lowerName.indexOf('.')
+        var registered: String? = null
+        while (dot >= 0) {
+            val mapped = associations[lowerName.substring(dot + 1)]
+            if (mapped != null) {
+                registered = mapped.singleOrNull()
+                break
+            }
+            dot = lowerName.indexOf('.', dot + 1)
+        }
         return packages[extension]?.mime ?: extensions[extension] ?: registered ?: runCatching {
             android.webkit.MimeTypeMap.getSingleton()?.getMimeTypeFromExtension(extension)
         }.getOrNull()?.let(::normalize) ?: "application/octet-stream"

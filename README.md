@@ -26,6 +26,13 @@ Protocol dependencies and permissions are preserved. This initial module is Andr
 
 `StreamFormatProbe` borrows a bounded positional ProbeReader for headers/nonzero signatures/footers, preserving the caller's cursor. It returns provisional metadata, candidates/confidence/evidence and mismatch warnings while retaining the original name/provenance. Sequential callers can inspect an already buffered prefix and replay it. Unknown/raw data is not classified from its extension. No parser is opened by inspection; existing format implementations perform validation at explicit execution.
 
+Local directory listing is metadata-only: names, extension MIME hints, sizes,
+timestamps, link information and effective access checks. It never opens each
+file to validate its contents, resolves POSIX ownership, or initializes/scans the
+managed disk cache. These MIME hints are provisional. Explicit `stat`/`entry`
+calls retain content validation and detailed permissions; hosts validate visible
+items asynchronously or validate a selected file before choosing its viewer.
+
 RealMedia container extensions have explicit MIME entries: `.rm` is
 `application/vnd.rn-realmedia`, `.rmvb` is `application/vnd.rn-realmedia-vbr`, and
 `.ra` retains `audio/x-pn-realaudio`. Hosts choose the matching playback library.

@@ -174,9 +174,13 @@ object FileMagicDetector {
                         )
                     }
                 } else {
-                    detectMpegAfterLargeId3(raf, header, len) ?: detectFromBytes(header, extMagic, isoMagic, vhdFooter, ufsMagic,
-                        fileNameHint = file.name, expectedMimeType = com.infinifolder.mime.MimeRegistry.guess(file.name),
-                        resourceLength = len)
+                    val expectedMime = com.infinifolder.mime.MimeRegistry.guess(file.name)
+                    val positionedIdentity = if (requiresPositionalProbe(file.name, expectedMime)) runCatching {
+                        detectFromSource(file.name, expectedMime, io.github.gretchycat.infinistream.FileSourceResource(
+                            file, io.github.gretchycat.infinistream.ContentType(mimeType = expectedMime)))
+                    }.getOrNull() else null
+                    positionedIdentity ?: detectMpegAfterLargeId3(raf, header, len) ?: detectFromBytes(header, extMagic, isoMagic, vhdFooter, ufsMagic,
+                        fileNameHint = file.name, expectedMimeType = expectedMime, resourceLength = len)
                 }
             }
         } catch (_: Exception) {
@@ -239,6 +243,38 @@ object FileMagicDetector {
         }
     }
 
+    /** Bounded detection that lets declared validators use a seekable source when their format needs it. */
+    fun detectFromSource(fileNameHint: String, expectedMimeType: String?, source: io.github.gretchycat.infinistream.SourceResource): FileMagicResult? {
+        return try {
+            val length = source.metadata.length
+            source.open().use { input ->
+                val prefix = readUpTo(input, probePrefixLength(fileNameHint, expectedMimeType))
+                if (prefix.isEmpty()) return null
+                detectFromBytesInternal(prefix, null, null, null, null, fileNameHint,
+                    expectedMimeType, length, source)
+            }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /** Whether a matching identify handler explicitly requires positional reads. */
+    fun requiresPositionalProbe(fileNameHint: String, expectedMimeType: String?): Boolean {
+        val normalized = expectedMimeType?.let(com.infinifolder.mime.MimeRegistry::normalize)
+            ?: com.infinifolder.mime.MimeRegistry.guess(fileNameHint)
+        val extension = fileNameHint.substringAfterLast('.', "").lowercase(Locale.ROOT)
+        return runCatching {
+            io.github.gretchycat.infinistream.RuntimeCapabilities.installed().descriptors().any { descriptor ->
+                io.github.gretchycat.infinistream.Operations.IDENTIFY in descriptor.operations &&
+                    descriptor.attributes["probeRequiresPositionalRead"] == "true" &&
+                    descriptor.formats.any { format ->
+                        normalized in format.mimeTypes.map(com.infinifolder.mime.MimeRegistry::normalize) ||
+                            extension.isNotEmpty() && format.extensions.any { it.equals(extension, true) }
+                    }
+            }
+        }.getOrDefault(false)
+    }
+
     fun detectFromBytes(
         header: ByteArray,
         extMagicAt1080: ByteArray? = null,
@@ -248,9 +284,22 @@ object FileMagicDetector {
         fileNameHint: String? = null,
         expectedMimeType: String? = null,
         resourceLength: Long? = null
+    ): FileMagicResult? = detectFromBytesInternal(header, extMagicAt1080, isoMagicAt32769,
+        vhdFooterAtEof, ufsMagicAtSuperblock, fileNameHint, expectedMimeType, resourceLength, null)
+
+    private fun detectFromBytesInternal(
+        header: ByteArray,
+        extMagicAt1080: ByteArray?,
+        isoMagicAt32769: ByteArray?,
+        vhdFooterAtEof: ByteArray?,
+        ufsMagicAtSuperblock: Int?,
+        fileNameHint: String?,
+        expectedMimeType: String?,
+        resourceLength: Long?,
+        probeSource: io.github.gretchycat.infinistream.SourceResource?
     ): FileMagicResult? {
         if (header.isEmpty()) return null
-        registeredIdentity(header, fileNameHint, expectedMimeType, resourceLength)?.let{return it}
+        registeredIdentity(header, fileNameHint, expectedMimeType, resourceLength, probeSource)?.let{return it}
         if(header.size>=128 && u8(header,5)==0xaf && u8(header,4) in setOf(0x11,0x12)){
             fun word(at:Int)=u8(header,at) or (u8(header,at+1) shl 8)
             val sourceLength=resourceLength?:header.size.toLong()
@@ -997,23 +1046,28 @@ object FileMagicDetector {
         val normalized = expectedMimeType?.let(com.infinifolder.mime.MimeRegistry::normalize)
             ?: com.infinifolder.mime.MimeRegistry.guess(fileName)
         val extension = fileName.substringAfterLast('.', "").lowercase(Locale.ROOT)
+        var defaultLength = 4096
         if (com.infinifolder.mime.MimeRegistry.isUnspecified(normalized) ||
-            extension in setOf("bin", "dat", "raw", "img", "ima", "rom", "iso", "cdr")) return 69632
+            extension in setOf("bin", "dat", "raw", "img", "ima", "rom", "iso", "cdr")) defaultLength = 69632
         if (normalized.startsWith("image/") || normalized in setOf("video/x-mng", "video/x-fli"))
-            return 69632
+            defaultLength = 69632
         // Audio probes may need a complete first codec frame/container header
         // before the decoder can distinguish a real stream from an extension.
         if (normalized.startsWith("audio/") || extension in setOf("gp3", "sf2", "sfz", "pat", "nsf", "nsfe", "spc", "gbs", "hes", "kss", "gym", "ay", "vgm", "vgz", "sap", "sgc"))
-            return 69632
-        val registeredEnd = runCatching {
+            defaultLength = 69632
+        val declared = runCatching {
             io.github.gretchycat.infinistream.RuntimeCapabilities.installed().descriptors()
                 .filter { io.github.gretchycat.infinistream.Operations.IDENTIFY in it.operations }
-                .flatMap { it.formats }
-                .filter { format -> normalized in format.mimeTypes || format.extensions.any { it.equals(extension, true) } }
-                .flatMap { it.magic }
-                .maxOfOrNull { signature -> (signature.offset + signature.hex.length / 2).coerceAtMost(69632L).toInt() }
-        }.getOrNull() ?: 0
-        return maxOf(4096, registeredEnd).coerceAtMost(69632)
+                .filter { descriptor -> descriptor.formats.any { format ->
+                    normalized in format.mimeTypes.map(com.infinifolder.mime.MimeRegistry::normalize) ||
+                        extension.isNotEmpty() && format.extensions.any { it.equals(extension, true) }
+                } }
+        }.getOrDefault(emptyList())
+        val registeredEnd = declared.flatMap { it.formats }.flatMap { it.magic }
+            .maxOfOrNull { signature -> (signature.offset + signature.hex.length / 2).coerceAtMost(69632L).toInt() } ?: 0
+        val handlerPrefix = declared.mapNotNull { it.attributes["probePrefixBytes"]?.toIntOrNull() }
+            .maxOrNull() ?: 0
+        return maxOf(defaultLength, registeredEnd, handlerPrefix).coerceAtMost(69632)
     }
 
     /** An ID3 tag is not an audio file by itself; require a valid following MPEG frame header. */
@@ -1092,15 +1146,17 @@ object FileMagicDetector {
             FileMagicResult("audio/mpeg", "MPEG Audio after ID3 metadata") else null
     }
 
-    private fun registeredIdentity(header:ByteArray, fileNameHint: String?, expectedMimeType: String?, resourceLength: Long?):FileMagicResult? {
+    private fun registeredIdentity(header:ByteArray, fileNameHint: String?, expectedMimeType: String?, resourceLength: Long?,
+        probeSource: io.github.gretchycat.infinistream.SourceResource? = null):FileMagicResult? {
         if(identifying.get())return null
         identifying.set(true)
-        return try {registeredIdentityOnce(header, fileNameHint, expectedMimeType, resourceLength)}finally{identifying.set(false)}
+        return try {registeredIdentityOnce(header, fileNameHint, expectedMimeType, resourceLength, probeSource)}finally{identifying.set(false)}
     }
-    private fun registeredIdentityOnce(header:ByteArray, fileNameHint: String?, expectedMimeType: String?, resourceLength: Long?):FileMagicResult? {
+    private fun registeredIdentityOnce(header:ByteArray, fileNameHint: String?, expectedMimeType: String?, resourceLength: Long?,
+        probeSource: io.github.gretchycat.infinistream.SourceResource?):FileMagicResult? {
         val registry=io.github.gretchycat.infinistream.RuntimeCapabilities.installed()
         val mimeHint = expectedMimeType ?: fileNameHint?.let(com.infinifolder.mime.MimeRegistry::guess)
-        val metadata=io.github.gretchycat.infinistream.StreamMetadata(
+        val probeMetadata=io.github.gretchycat.infinistream.StreamMetadata(
             content = io.github.gretchycat.infinistream.ContentType(mimeType = mimeHint),
             name = fileNameHint, length = resourceLength ?: header.size.toLong(),
             finiteness = if (resourceLength != null) io.github.gretchycat.infinistream.Finiteness.FINITE else io.github.gretchycat.infinistream.Finiteness.UNKNOWN,
@@ -1126,14 +1182,17 @@ object FileMagicDetector {
         // Ask relevant registered parsers to validate the candidate against
         // their own structure. Only signature or verified results can set an
         // identity; a matching extension by itself remains a candidate.
-        val source = object : io.github.gretchycat.infinistream.SourceResource {
-            override val metadata = metadata
+        val source = probeSource?.let { original -> object : io.github.gretchycat.infinistream.SourceResource {
+            override val metadata = probeMetadata
+            override fun open(): io.github.gretchycat.infinistream.ByteSource = original.open()
+        } } ?: object : io.github.gretchycat.infinistream.SourceResource {
+            override val metadata = probeMetadata
             override fun open(): io.github.gretchycat.infinistream.ByteSource =
-                io.github.gretchycat.infinistream.InputStreamSource(header.inputStream(), metadata)
+                io.github.gretchycat.infinistream.InputStreamSource(header.inputStream(), probeMetadata)
         }
-        val resource = io.github.gretchycat.infinistream.CapabilityResource(metadata, source = source)
+        val resource = io.github.gretchycat.infinistream.CapabilityResource(probeMetadata, source = source)
         val probeContext = io.github.gretchycat.infinistream.CapabilityProbeContext(resource,
-            io.github.gretchycat.infinistream.ProbeBudget(maxBytes = minOf(header.size, 64 * 1024), maxProbes = 64,
+            io.github.gretchycat.infinistream.ProbeBudget(maxBytes = minOf(header.size, 69632), maxProbes = 64,
                 maxNanos = 100_000_000, maxDepth = 0))
         val validated = eligibleHandlers.asSequence().mapNotNull { handler ->
             val descriptor = handler.describe()
@@ -1188,7 +1247,7 @@ object FileMagicDetector {
                 val count=minOf(length,header.size-position.toInt());header.copyInto(buffer,offset,position.toInt(),position.toInt()+count);return count
             }
         }
-        val reader=io.github.gretchycat.infinistream.ProbeReader(input,metadata)
+        val reader=io.github.gretchycat.infinistream.ProbeReader(input,probeMetadata)
         val candidates=mutableListOf<Triple<String,String,Boolean>>()
         eligibleHandlers.forEach { entry ->
             if(entry.descriptor.id=="store.magic")return@forEach
@@ -1264,6 +1323,18 @@ object FileMagicDetector {
         while (total < maxBytes) {
             val read = input.read(buf, total, maxBytes - total)
             if (read <= 0) break
+            total += read
+        }
+        return if (total == maxBytes) buf else buf.copyOf(total)
+    }
+
+    private fun readUpTo(source: io.github.gretchycat.infinistream.ByteSource, maxBytes: Int): ByteArray {
+        val buf = ByteArray(maxBytes)
+        var total = 0
+        while (total < maxBytes) {
+            val read = source.read(buf, total, maxBytes - total)
+            if (read < 0) break
+            if (read == 0 || read > maxBytes - total) throw java.io.IOException("Invalid source read result: $read")
             total += read
         }
         return if (total == maxBytes) buf else buf.copyOf(total)

@@ -11,7 +11,7 @@ class CacheCapacityException(message: String) : IOException(message)
 
 class DiskCache private constructor(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("disk_cache_policy", Context.MODE_PRIVATE)
-    val directory = File(context.applicationContext.cacheDir, "managed-cache-v1").apply { mkdirs() }
+    val directory = File(context.applicationContext.cacheDir, DIRECTORY_NAME).apply { mkdirs() }
     internal class Entry(val dir: File, var bytes: Long, var used: Long, var pins: Int = 0) {
         var key: String? = File(dir, ".key").takeIf { it.isFile }?.readText()
     }
@@ -229,12 +229,16 @@ class DiskCache private constructor(context: Context) {
     }
 
     companion object {
+        private const val DIRECTORY_NAME = "managed-cache-v1"
         const val MIB = 1024L * 1024L
         const val DEFAULT_BUDGET = 200L * MIB
         @Volatile private var instance: DiskCache? = null
         fun get(context: Context): DiskCache = instance ?: synchronized(this) {
             instance ?: DiskCache(context.applicationContext).also { instance = it }
         }
+        /** Ownership checks must not initialize, scan or evict the managed cache. */
+        fun isManagedPath(context: Context, file: File): Boolean = file.canonicalFile.toPath()
+            .startsWith(File(context.applicationContext.cacheDir, DIRECTORY_NAME).canonicalFile.toPath())
         fun capacityError(error: Throwable): CacheCapacityException? =
             generateSequence(error) { it.cause }.take(24).filterIsInstance<CacheCapacityException>().firstOrNull()
     }

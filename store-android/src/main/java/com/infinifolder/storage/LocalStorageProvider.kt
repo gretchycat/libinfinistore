@@ -233,9 +233,12 @@ class LocalStorageProvider(private val context: Context) : StorageProvider {
         canonical.toPath().map { it.toString() }.filter { it.isNotEmpty() }.forEach(builder::appendPath)
         return builder.build()
     }
-    fun entry(file: File): ResourceEntry {
+    fun entry(file: File): ResourceEntry = entry(file, enrichMetadata = true)
+
+    /** Listings never open file contents. Explicit stat and visible-item workers enrich them later. */
+    private fun entry(file: File, enrichMetadata: Boolean): ResourceEntry {
         val uri = uriFor(file)
-        val cachedSnapshot = DiskCache.get(context).isManaged(file)
+        val cachedSnapshot = DiskCache.isManagedPath(context, file)
         val isSymlink = try { Files.isSymbolicLink(file.toPath()) } catch (_: Throwable) { false }
         val targetPath = if (isSymlink) {
             try { Files.readSymbolicLink(file.toPath()).toString() } catch (_: Throwable) { null }
@@ -252,7 +255,7 @@ class LocalStorageProvider(private val context: Context) : StorageProvider {
             DocumentsContract.Document.MIME_TYPE_DIR
         } else {
             val extensionMime = com.infinifolder.mime.MimeRegistry.guess(targetFile.name)
-            if (!targetFile.isFile || !targetFile.canRead()) {
+            if (!enrichMetadata || !targetFile.isFile || !targetFile.canRead()) {
                 extensionMime
             } else {
                 val magic = FileMagicDetector.detect(targetFile)
@@ -262,6 +265,9 @@ class LocalStorageProvider(private val context: Context) : StorageProvider {
         }
         val perm = if (isBroken) {
             FilePermissions(canRead = false, canWrite = false, canExecute = false, mode = null, formatted = null, owner = null, group = null)
+        } else if (!enrichMetadata) {
+            FilePermissions(targetFile.canRead(), targetFile.canWrite(), targetFile.canExecute(),
+                mode = null, formatted = null, owner = null, group = null)
         } else {
             PermissionHelper.getFilePermissions(targetFile)
         }
@@ -326,7 +332,11 @@ class LocalStorageProvider(private val context: Context) : StorageProvider {
         val dir = file(parent)
         checkAccess(dir)
         val files = dir.listFiles()?.toList() ?: throw IOException("Android did not allow reading directory: ${dir.name}")
-        files.map(::entry)
+        val startedAt = android.os.SystemClock.uptimeMillis()
+        files.map { entry(it, enrichMetadata = false) }.also {
+            DiagnosticLog.record("storage.local.list-metadata",
+                "entries=${it.size} elapsedMs=${android.os.SystemClock.uptimeMillis() - startedAt} contentProbes=0")
+        }
     }
     override fun openRead(ref: ResourceRef) = access {
         val f = file(ref)

@@ -16,7 +16,7 @@ object ArchiveFormats {
         "ntfs", "hfs", "hfsplus", "hfsx",
         "vdi", "qcow2", "vmdk", "vhd", "vhdx",
         "esp", "efi",
-        "mbr", "gpt", "apm", "dd", "dsk", "dump"
+        "mbr", "gpt", "apm", "dd", "dsk", "dump", "d64", "d71", "d81", "atr", "st", "3do", "opera", "ssd", "dsd", "do", "po"
     )
 
     private val COMPRESSION_SUFFIXES = listOf(
@@ -66,7 +66,9 @@ object ArchiveFormats {
         "application/x-qemu-disk",
         "application/x-vmdk",
         "application/x-vhd",
-        "application/x-vhdx"
+        "application/x-vhdx",
+        "application/x-commodore-d64", "application/x-commodore-d71", "application/x-commodore-d81",
+        "application/x-atari-atr", "application/x-3do-opera-image", "application/x-acorn-dfs-disk", "application/x-apple2-disk-image"
     )
 
     private val ARCHIVE_MIME_TYPES = setOf(
@@ -93,6 +95,8 @@ object ArchiveFormats {
 
     fun isArchive(name: String, mimeType: String = ""): Boolean {
         if (com.infinifolder.mime.MimeRegistry.normalize(mimeType) == "vnd.android.document/directory") return false
+        if (name.substringAfterLast('.', "").lowercase(Locale.ROOT) in setOf("po", "do") &&
+            com.infinifolder.mime.MimeRegistry.isTextBased(mimeType)) return false
         if (NativeArchiveNames.isSupported(name)) return true
         if (com.infinifolder.mime.MimeRegistry.packageFormat(name, mimeType) != null) return true
         val lowerName = name.lowercase(Locale.ROOT)
@@ -121,6 +125,8 @@ object ArchiveFormats {
 
     fun isDiscImage(name: String, mimeType: String = ""): Boolean {
         val lowerName = name.lowercase(Locale.ROOT)
+        if (lowerName.substringAfterLast('.', "") in setOf("po", "do") &&
+            com.infinifolder.mime.MimeRegistry.isTextBased(mimeType)) return false
         if (DISC_COMPOUND_EXTENSIONS.any { lowerName.endsWith(it) }) return true
         val ext = lowerName.substringAfterLast('.', "")
         if (DISC_BASE_EXTENSIONS.contains(ext)) return true
