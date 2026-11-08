@@ -51,6 +51,10 @@ gradle :store-android:testDebugUnitTest :store-android:assembleDebug --offline
 No browser process is required. Keep existing format regression suites; capability
 tests invoke actual services/parsers rather than scripted success responses.
 
+## New format modules
+
+New Store format detectors must validate content through bounded magic or a real parser and expose available parsed metadata through `MetadataCapabilityHandler`; URI/provider reachability is a separate capability. If a format has no reliable in-band discriminator, report an extension association as a candidate. Follow the shared [Stream conformance rule](../libinfinistream/CAPABILITIES.md#format-module-validation-and-metadata-requirements).
+
 ## Host audit record
 
 InfiniFolder's 2026-11-04 runtime-discovery audit exercises this repository through

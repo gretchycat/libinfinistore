@@ -195,9 +195,23 @@ object FileOperations {
             }
         }
         val destinationContainers = destinationAssessment.containers
-        val nativeLinkCandidate = move && destinationContainers.size == 1 && entries.all {
+        val nativeMoveCapabilities = if (move && destinationContainers.isEmpty() && !createLinks && !partialRecovery) {
+            entries.associate { entry ->
+                val request = com.infinifolder.storage.StorageTransferRequest(
+                    entry.ref, destRef, entry.metadata.name, move = true)
+                val result = activeProvider.transferCapabilities(request)
+                if (result is ProviderResult.Failure) com.infinifolder.storage.DiagnosticLog.record(
+                    "transfer.capability-probe.failed", "strategy=NATIVE_MOVE source=${entry.ref.providerId}", result.cause)
+                entry.ref to (result as? ProviderResult.Success)?.value
+            }
+        } else emptyMap()
+        val nativeMoveCandidate = entries.isNotEmpty() && nativeMoveCapabilities.size == entries.size &&
+            nativeMoveCapabilities.values.all { caps -> caps != null &&
+                com.infinifolder.storage.StorageTransferPlanner.choose(caps, move = true) ==
+                    com.infinifolder.storage.TransferStrategy.NATIVE_MOVE }
+        val nativeLinkCandidate = (move && destinationContainers.size == 1 && entries.all {
             provider.backingResource(it.ref) == destinationContainers.first()
-        }
+        }) || nativeMoveCandidate
         var requiresNativeLinkPreservation = false
         if (move) timed("Checking source move capabilities") {
             entries.forEach { entry ->
@@ -378,7 +392,7 @@ object FileOperations {
         // A private batch may relocate existing allocations without duplicating payloads.
         // Defer its payload-space check until the batch declares whether it can do so.
         val tryBatchRelocation = move && destinationContainers.isNotEmpty() && incompleteRoots.isEmpty()
-        if (!tryBatchRelocation) checkCapacity()
+        if (!tryBatchRelocation && !nativeMoveCandidate) checkCapacity()
         var useStagedRandomAccessFallback = false
         fun approveStagedFallback(source: ResourceEntry, reason: String) {
             if (useStagedRandomAccessFallback) return
@@ -461,6 +475,77 @@ object FileOperations {
                 } while (candidate.lowercase(java.util.Locale.ROOT) in names)
                 names.add(candidate.lowercase(java.util.Locale.ROOT))
                 return candidate
+            }
+            fun isKnownCrossFilesystemRenameFailure(error: Throwable): Boolean =
+                generateSequence(error) { it.cause }.take(12).any { cause ->
+                    val message = cause.message?.lowercase(java.util.Locale.ROOT).orEmpty()
+                    "exdev" in message || "cross-device" in message || "cross device" in message
+                }
+
+            // A same-session native rename moves a directory inode as one operation; it
+            // must not turn into a recursive content copy, even when it contains links.
+            if (move && batch == null && destinationContainers.isEmpty() && !createLinks && !partialRecovery &&
+                transferEntries.isNotEmpty() && transferEntries.all { nativeMoveCapabilities[it.ref]?.nativeMove == true }) {
+                data class PlannedNativeMove(val source: ResourceEntry, val sourceParent: ResourceRef, val destinationName: String)
+                val plan = transferEntries.map { entry ->
+                    val sourceParent = when (val result = provider.parent(entry.ref)) {
+                        is ProviderResult.Success -> result.value ?: throw IOException("Cannot move a storage root")
+                        is ProviderResult.Failure -> throw IOException("Cannot establish the source folder: ${result.message}", result.cause)
+                        is ProviderResult.Unsupported -> throw IOException("This source cannot report its parent for native move")
+                    }
+                    PlannedNativeMove(entry, sourceParent, availableName(destRef, requestedDestinationName(entry)))
+                }
+                val completed = mutableListOf<Pair<PlannedNativeMove, ResourceEntry>>()
+                try {
+                    for (item in plan) {
+                        if (isCancelled()) throw InterruptedException("Move cancelled")
+                        val request = com.infinifolder.storage.StorageTransferRequest(
+                            item.source.ref, destRef, item.destinationName, move = true)
+                        update(OperationUpdate(itemsProcessed = completed.size, totalItems = totalItems,
+                            currentItem = item.source.metadata.name, message = "NATIVE_MOVE: moving on SFTP server",
+                            indeterminate = true))
+                        com.infinifolder.storage.DiagnosticLog.record("transfer.strategy",
+                            "strategy=NATIVE_MOVE source=${item.source.ref.providerId} destination=${destRef.providerId}")
+                        val moved = when (val result = provider.nativeMove(request, isCancelled)) {
+                            is ProviderResult.Success -> result.value
+                            is ProviderResult.Failure -> throw IOException("Native move failed: ${result.message}", result.cause)
+                            is ProviderResult.Unsupported -> throw IOException("Native move became unavailable before execution")
+                        }
+                        completed += item to moved
+                        if (isCancelled()) throw InterruptedException("Move cancelled")
+                    }
+                    if (isCancelled()) throw InterruptedException("Move cancelled")
+                    val movedEntries = completed.map { it.second }
+                    update(OperationUpdate(itemsProcessed = movedEntries.size, totalItems = totalItems,
+                        message = "Moved on the SFTP server (NATIVE_MOVE)", indeterminate = false,
+                        cancellationCommitted = true))
+                    return movedEntries.map { it.ref }
+                } catch (error: Exception) {
+                    val rollbackErrors = com.infinifolder.archive.RecoveryCancellation.withoutCancellation {
+                        completed.asReversed().mapNotNull { (item, moved) ->
+                            val originalOccupied = when (val listed = provider.list(item.sourceParent)) {
+                                is ProviderResult.Success -> listed.value.any { it.metadata.name.equals(item.source.metadata.name, true) }
+                                else -> true
+                            }
+                            if (originalOccupied) return@mapNotNull "${item.source.metadata.name}: original path is occupied; moved item retained at ${moved.uri}"
+                            val rollback = provider.nativeMove(com.infinifolder.storage.StorageTransferRequest(
+                                moved.ref, item.sourceParent, item.source.metadata.name, move = true)) { false }
+                            if (rollback is ProviderResult.Success) null
+                            else "${item.source.metadata.name}: could not restore original path; moved item retained at ${moved.uri}"
+                        }
+                    }
+                    if (rollbackErrors.isNotEmpty()) throw TransferRollbackException(
+                        "Native move did not finish and rollback was incomplete. " + rollbackErrors.joinToString("; "), error)
+                    val allSourcesRemain = plan.all { item -> provider.stat(item.source.ref) is ProviderResult.Success }
+                    if (!isCancelled() && isKnownCrossFilesystemRenameFailure(error) && allSourcesRemain) {
+                        checkCapacity()
+                        destinationNames.clear()
+                        destinationNames[destRef] = StorageSafety.complete(provider.list(destRef))
+                            .map { it.metadata.name.lowercase(java.util.Locale.ROOT) }.toMutableSet()
+                        com.infinifolder.storage.DiagnosticLog.record("transfer.native-move.fallback",
+                            "reason=cross-filesystem next=server-copy-or-streaming")
+                    } else throw error
+                }
             }
 
             if (tryBatchRelocation && batch?.supportsRelocation == true) {
@@ -578,6 +663,7 @@ object FileOperations {
             }
 
             val sourceDigests = mutableMapOf<ResourceRef, ByteArray>()
+            val serverSideCopiedSources = mutableSetOf<ResourceRef>()
             fun digest(ref: ResourceRef, name: String? = null, expectedBytes: Long? = null, allowSkip: Boolean = false): ByteArray =
                 com.infinifolder.storage.StorageActivity.track(com.infinifolder.storage.StorageActivity.Kind.VERIFICATION) {
                 val opened = activeProvider.openRead(ref)
@@ -637,6 +723,16 @@ object FileOperations {
                     fun signature(items: List<ResourceEntry>) = items.associate { it.ref to it.metadata }
                     if (signature(before) != signature(after)) throw IOException("Source folder changed; original retained")
                     before.forEach(::verifySource)
+                } else if (entry.ref in serverSideCopiedSources) {
+                    val current = activeProvider.stat(entry.ref)
+                    val actual = (current as? ProviderResult.Success)?.value
+                        ?: throw IOException("Cannot recheck source metadata after server-side copy; original retained")
+                    if (entry.metadata.sizeBytes != null && actual.metadata.sizeBytes != entry.metadata.sizeBytes ||
+                        actual.metadata.isDirectory != entry.metadata.isDirectory || actual.metadata.isSymbolicLink != entry.metadata.isSymbolicLink ||
+                        (entry.metadata.modifiedAtMillis != null && actual.metadata.modifiedAtMillis != entry.metadata.modifiedAtMillis))
+                        throw IOException("Source size or modification state changed during server-side copy; original retained")
+                    com.infinifolder.storage.DiagnosticLog.record("transfer.server-copy.source-verified",
+                        "item=${entry.metadata.name} method=size-and-metadata sha256=false")
                 } else if (entry.ref.providerId != "apps") {
                     if (!digest(entry.ref, "source ${entry.metadata.name}", transferSize(entry)).contentEquals(sourceDigests.getValue(entry.ref))) {
                         throw IOException("Source changed during transfer; original retained")
@@ -649,6 +745,10 @@ object FileOperations {
                 entry.metadata.isDirectory -> sourceChildren.getValue(entry.ref).sumOf(::plannedBytes)
                 else -> entry.metadata.sizeBytes ?: 0L
             }
+            fun containsServerSideCopy(entry: ResourceEntry): Boolean =
+                if (entry.metadata.isDirectory && !entry.metadata.isSymbolicLink)
+                    sourceChildren[entry.ref].orEmpty().any(::containsServerSideCopy)
+                else entry.ref in serverSideCopiedSources
             totalBytes = transferEntries.sumOf(::plannedBytes).takeIf { it > 0 }
             var lastRateTime = System.currentTimeMillis()
             var bytesSinceLast = 0L
@@ -744,6 +844,63 @@ object FileOperations {
                     }
                 }
                 fileSystem?.requireName(targetName)
+                if (!useStagedRandomAccessFallback) {
+                    if (!createLinks && !partialRecovery && shortcutPayload == null && !torrentDownload &&
+                        !source.metadata.isDirectory && !source.metadata.isSymbolicLink) {
+                        val request = com.infinifolder.storage.StorageTransferRequest(
+                            source.ref, destParentRef, targetName, move)
+                        when (val capabilityResult = activeProvider.transferCapabilities(request)) {
+                            is ProviderResult.Success -> if (capabilityResult.value.sameBackendSession && capabilityResult.value.serverSideCopy) {
+                                activeFileName = targetName
+                                activeFileBytes = 0L
+                                activeFileTotalBytes = transferSize(source)
+                                update(OperationUpdate(bytes = transferredBytes, totalBytes = totalBytes,
+                                    itemsProcessed = itemsDone, totalItems = totalItems, currentItem = targetName,
+                                    currentItemBytes = null, currentItemTotalBytes = null,
+                                    message = "SERVER_SIDE_COPY: copying on remote server", indeterminate = true))
+                                com.infinifolder.storage.DiagnosticLog.record("transfer.strategy",
+                                    "strategy=SERVER_SIDE_COPY source=${source.ref.providerId} destination=${destParentRef.providerId} " +
+                                        "bytes=${transferSize(source)} sha256=false")
+                                when (val copied = activeProvider.serverSideCopyFile(request, isCancelled)) {
+                                    is ProviderResult.Success -> {
+                                        val expectedSize = transferSize(source)
+                                        if (expectedSize != null && copied.value.metadata.sizeBytes != expectedSize)
+                                            throw IOException("Server-side copy size verification failed; source retained")
+                                        undo.created(source, copied.value, destParentRef, transferMetadata)
+                                        undo.serverSideWritten(source.ref, expectedSize ?: copied.value.metadata.sizeBytes ?: 0L)
+                                        serverSideCopiedSources += source.ref
+                                        destinationNames.getValue(destParentRef).add(copied.value.metadata.name.lowercase(java.util.Locale.ROOT))
+                                        preserveMetadata(source, copied.value.ref, transferMetadata)
+                                        undo.seal(source.ref)
+                                        val completedBytes = expectedSize ?: copied.value.metadata.sizeBytes ?: 0L
+                                        transferredBytes = Math.addExact(transferredBytes, completedBytes)
+                                        activeFileBytes = completedBytes
+                                        update(OperationUpdate(bytes = transferredBytes, totalBytes = totalBytes,
+                                            itemsProcessed = itemsDone, totalItems = totalItems, currentItem = targetName,
+                                            message = "Copied on the remote server (SERVER_SIDE_COPY)", indeterminate = false,
+                                            currentItemBytes = completedBytes, currentItemTotalBytes = completedBytes))
+                                        com.infinifolder.storage.DiagnosticLog.record("transfer.server-copy.complete",
+                                            "item=$targetName bytes=$completedBytes verified=size-and-metadata sha256=false")
+                                        return copied.value
+                                    }
+                                    is ProviderResult.Failure -> throw IOException(
+                                        "Server-side copy failed; streaming retry was not attempted: ${copied.message}", copied.cause)
+                                    is ProviderResult.Unsupported -> com.infinifolder.storage.DiagnosticLog.record(
+                                        "transfer.server-copy.unsupported", "item=$targetName fallback=streaming-before-copy")
+                                }
+                            }
+                            is ProviderResult.Failure -> throw IOException("Cannot query transfer capabilities: ${capabilityResult.message}", capabilityResult.cause)
+                            is ProviderResult.Unsupported -> Unit
+                        }
+                    }
+                }
+                com.infinifolder.storage.DiagnosticLog.record("transfer.strategy",
+                    if (move) "strategy=COPY_AND_DELETE copy=STREAMING_COPY item=$targetName"
+                    else "strategy=STREAMING_COPY item=$targetName")
+                update(OperationUpdate(currentItem = targetName,
+                    message = if (move) "COPY_AND_DELETE (STREAMING_COPY): copying $targetName"
+                        else "STREAMING_COPY: copying $targetName",
+                    indeterminate = false))
                 if (torrentDownload) destinationNames.getValue(destParentRef).add(finalName.lowercase(java.util.Locale.ROOT))
                 activeFileName = targetName
                 activeFileBytes = 0L
@@ -1326,6 +1483,11 @@ object FileOperations {
             com.infinifolder.archive.ReadDeviceScope.withScope(false) {
                 for (entry in originalsToRemove) {
                     if (isCancelled()) throw InterruptedException("Move cancelled before original removal")
+                    val copyStrategy = if (containsServerSideCopy(entry)) "SERVER_SIDE_COPY" else "STREAMING_COPY"
+                    com.infinifolder.storage.DiagnosticLog.record("transfer.strategy",
+                        "strategy=COPY_AND_DELETE copy=$copyStrategy item=${entry.metadata.name}")
+                    update(OperationUpdate(currentItem = entry.metadata.name,
+                        message = "COPY_AND_DELETE ($copyStrategy): verifying source before removal", indeterminate = true))
                     timed("Rechecking source: ${entry.metadata.name}", entry.metadata.name) { verifySource(entry) }
                     if (isCancelled()) throw InterruptedException("Move cancelled before original removal")
                     undo.beforeRemoval(entry)

@@ -29,6 +29,7 @@ internal class TransferUndoJournal(
         var hash: ByteArray? = if (source.metadata.isDirectory) null else MessageDigest.getInstance("SHA-256").digest()
         var size = 0L
         var modified: Long? = null
+        var serverSideUnhashed = false
     }
     private val roots = eligible.map { Root(it) }
     private var current: Root? = null
@@ -42,6 +43,13 @@ internal class TransferUndoJournal(
     }
     fun written(source: ResourceRef, hash: ByteArray, size: Long) {
         current?.nodes?.values?.lastOrNull { it.source.ref == source }?.let { it.hash = hash.copyOf(); it.size = size }
+    }
+    fun serverSideWritten(source: ResourceRef, size: Long) {
+        current?.nodes?.values?.lastOrNull { it.source.ref == source }?.let {
+            it.hash = null
+            it.size = size
+            it.serverSideUnhashed = true
+        }
     }
     fun seal(source: ResourceRef) {
         current?.nodes?.values?.lastOrNull { it.source.ref == source }?.let { node ->
@@ -165,6 +173,8 @@ internal class TransferUndoJournal(
                     } else {
                         if (node.modified != null && entry.metadata.modifiedAtMillis != null && node.modified != entry.metadata.modifiedAtMillis)
                             throw IOException("File modification state changed: ${entry.uri}; retained")
+                        if (node.serverSideUnhashed)
+                            throw IOException("Server-side copy has no client-side content digest; retained for safety at ${entry.uri}")
                         if (!matches(destinationProvider(), entry, node)) throw IOException("File contents changed: ${entry.uri}; retained")
                     }
                     required(destinationProvider().delete(entry.ref), "Remove copied destination ${entry.uri}")

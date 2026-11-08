@@ -56,6 +56,26 @@ replacement does not cancel its immediate rollback: restoration and durable reco
 recording run with an existing interrupt deferred, then reinstate that signal.
 Recovery restoration publishes from the preserved file without a full-backup RAM copy.
 
+Transfers expose path-specific `StorageTransferCapabilities` through the provider
+contract, plus `nativeMove` and `serverSideCopyFile` execution hooks. These are
+queried for a source and destination pair; URI schemes alone do not imply a shared
+session. SFTP identifies a session by its saved connection ID and compares server
+filesystem IDs when the server advertises `statvfs@openssh.com`. Same-filesystem
+moves use a no-overwrite SFTP v3 `SSH_FXP_RENAME`; when filesystem identity is
+unknown it attempts that request and only falls back on an explicit cross-device
+error. Copy uses `copy-data` version 1 when the source is a regular file in the same
+SFTP session. It writes to an exclusive random sibling, checks the copied length,
+rechecks source metadata, and publishes with no-overwrite rename. Unsupported
+`copy-data` is the only signal that permits the existing stream path to retry;
+permission, path, disconnect, or partial-operation failures are reported without
+replaying the copy. Recursive trees retain the shared transfer planner and use
+server-side copies for eligible files. Move deletion occurs only after destination
+completion and source revalidation. Since `copy-data` has no portable checksum
+response, this path validates server status, size and metadata, not a SHA-256 digest;
+rollback retains server-copied files when it cannot prove their contents unchanged.
+The JSch packet adapter is serialized by `SftpClientPool` and has consumer keep rules
+for the private packet members it uses.
+
 Ringtone MIME/signature routing covers MMF/SMAF, GP3 score headers and 3GPP media
 brands. DOS description/art extensions have explicit text mappings; local shared
 content types use the same registry. Repeated valid ANSI CSI controls can identify

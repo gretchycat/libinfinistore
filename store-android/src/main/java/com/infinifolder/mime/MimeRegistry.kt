@@ -6,6 +6,9 @@ import io.github.gretchycat.infinistream.FormatSupport
 /** Application identity and its packaging are separate parts of one classification. */
 object MimeRegistry {
     data class PackageFormat(val mime: String, val container: String)
+    private val unspecifiedMimes = setOf("application/octet-stream", "application/binary", "application/x-binary",
+        "binary/octet-stream", "application/x-unknown", "application/unknown", "unknown/unknown",
+        "application/x-unknown-content-type")
     val packages = mapOf(
         "wsz" to PackageFormat("application/x-winamp-skin", "zip"),
         "apk" to PackageFormat("application/vnd.android.package-archive", "zip"),
@@ -139,10 +142,12 @@ object MimeRegistry {
         "sf2" to "audio/x-soundfont", "sfz" to "audio/x-sfz", "pat" to "audio/x-gus-patch",
         "mod" to "audio/x-mod", "s3m" to "audio/x-s3m", "xm" to "audio/x-xm", "it" to "audio/x-it",
         "dro" to "audio/x-dro", "imf" to "audio/x-imf", "vgm" to "audio/x-vgm", "vgz" to "audio/x-vgm", "ym" to "audio/x-ym",
-        "nsf" to "audio/x-nsf", "spc" to "audio/x-spc", "sid" to "audio/x-sid",
+        "nsf" to "audio/x-nsf", "nsfe" to "audio/x-nsfe", "gbs" to "audio/x-gbs", "hes" to "audio/x-hes",
+        "kss" to "audio/x-kss", "gym" to "audio/x-gym", "ay" to "audio/x-ay", "sgc" to "audio/x-sgc",
+        "spc" to "audio/x-spc", "sid" to "audio/x-sid",
         "dsf" to "audio/x-dsf", "dff" to "audio/x-dff", "wv" to "audio/x-wavpack", "tta" to "audio/x-tta", "ra" to "audio/x-pn-realaudio",
         "mlp" to "audio/x-mlp", "thd" to "audio/x-truehd", "cdda" to "audio/x-cdda",
-        "m3u" to "audio/x-mpegurl", "m3u8" to "audio/x-mpegurl", "pls" to "audio/x-scpls", "xspf" to "application/xspf+xml", "cue" to "application/x-cue",
+        "m3u" to "audio/x-mpegurl", "m3u8" to "audio/x-mpegurl", "pls" to "audio/x-scpls", "xspf" to "application/xspf+xml", "jspf" to "application/jspf+json", "cue" to "application/x-cue",
         "rm" to "application/vnd.rn-realmedia", "rmvb" to "application/vnd.rn-realmedia-vbr",
         "3gp" to "video/3gpp", "3gpp" to "video/3gpp", "3g2" to "video/3gpp2",
         "mp4" to "video/mp4", "mkv" to "video/x-matroska", "webm" to "video/webm",
@@ -193,6 +198,8 @@ object MimeRegistry {
         val value = mime.orEmpty().substringBefore(';').trim().lowercase(Locale.ROOT)
         return aliases[value] ?: value.ifEmpty { "application/octet-stream" }
     }
+    /** MIME placeholders that do not identify a usable file type. */
+    fun isUnspecified(mime: String?): Boolean = normalize(mime) in unspecifiedMimes
     fun packageFormat(name: String, mime: String? = null): PackageFormat? {
         if (normalize(mime) == "vnd.android.document/directory") return null
         return packages[name.substringAfterLast('.', "").lowercase(Locale.ROOT)]
@@ -215,13 +222,16 @@ object MimeRegistry {
         if (normalize(supplied) == "vnd.android.document/directory") return "vnd.android.document/directory"
         if (name.endsWith(".incomplete", true)) return "application/vnd.infinifolder.torrent-partial"
         if (normalize(supplied) == "application/vnd.infinifolder.partial-download") return normalize(supplied)
-        packageFormat(name, supplied)?.let { return it.mime }
         val stated = normalize(supplied)
+        packageFormat(name, stated)?.takeIf {
+            isUnspecified(stated) || stated == it.mime || stated == "application/zip"
+        }?.let { return it.mime }
         val sniffed = normalize(detected)
-        if (sniffed != "application/octet-stream") return sniffed
+        if (!isUnspecified(sniffed)) return sniffed
         val inferred = guess(name)
-        if (stated in setOf("application/octet-stream", "text/plain", "application/x-archive", "application/x-compressed")) {
-            if (inferred != "application/octet-stream") return inferred
+        if (isUnspecified(stated) || stated in setOf("application/x-archive", "application/x-compressed")) {
+            if (!isUnspecified(inferred)) return inferred
+            if (isUnspecified(stated)) return inferred
         }
         return stated
     }
@@ -232,8 +242,12 @@ object MimeRegistry {
         "application/ecmascript", "application/x-javascript", "application/x-sh", "application/x-shellscript",
         "application/x-python", "application/x-perl", "application/x-ruby", "application/sql",
         "application/x-csh", "application/x-bat", "application/x-powershell", "application/x-fishscript",
-        "application/x-php", "application/vnd.dart"
+        "application/x-php", "application/vnd.dart", "application/x-mpegurl", "audio/x-mpegurl",
+        "application/x-scpls", "audio/x-scpls", "application/x-cue", "image/x-ansi", "image/x-rip"
     ) || mime.endsWith("+json") || mime.endsWith("+xml")
+
+    /** True when a content probe can validate the candidate with bounded text inspection. */
+    fun isTextBased(mime: String?): Boolean = isTextMime(normalize(mime))
 
     /** Immutable seed associations for editable host registries; aliases remain canonicalized here. */
     fun associations(): Map<String, String> = runtimeAssociations().mapNotNull { (ext,values) -> values.singleOrNull()?.let { ext to it } }.toMap() + extensions.mapValues { normalize(it.value) } +

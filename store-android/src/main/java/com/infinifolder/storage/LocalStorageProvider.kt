@@ -64,13 +64,11 @@ class SharedFileProvider : FileProvider() {
             if (ext.exists()) ext else File("/", path)
         } else null
         if (file != null && file.exists()) {
-            val pkgMime = com.infinifolder.archive.ArchiveFormats.packageMimeType(file.name)
-            if (pkgMime != null) return pkgMime
             val extMime = com.infinifolder.mime.MimeRegistry.guess(file.name)
-            if (FileMagicDetector.isAmbiguousOrUnknown(file.name, extMime)) {
-                return FileMagicDetector.detect(file)?.mimeType ?: extMime
-            }
-            return extMime
+            if (!file.isFile || !file.canRead()) return extMime
+            val magic = FileMagicDetector.detect(file)
+            return if (file.length() == 0L && com.infinifolder.mime.MimeRegistry.isTextBased(extMime)) extMime
+            else FileMagicDetector.validatedExtensionMime(file.name, extMime, magic)
         }
         return super.getType(uri)
     }
@@ -253,16 +251,13 @@ class LocalStorageProvider(private val context: Context) : StorageProvider {
         val mime = if (isDir) {
             DocumentsContract.Document.MIME_TYPE_DIR
         } else {
-            val pkgMime = com.infinifolder.archive.ArchiveFormats.packageMimeType(targetFile.name)
-            if (pkgMime != null) {
-                pkgMime
+            val extensionMime = com.infinifolder.mime.MimeRegistry.guess(targetFile.name)
+            if (!targetFile.isFile || !targetFile.canRead()) {
+                extensionMime
             } else {
-                val extMime = com.infinifolder.mime.MimeRegistry.guess(targetFile.name)
-                if (FileMagicDetector.isAmbiguousOrUnknown(targetFile.name, extMime)) {
-                    FileMagicDetector.detect(targetFile)?.mimeType ?: extMime
-                } else {
-                    extMime
-                }
+                val magic = FileMagicDetector.detect(targetFile)
+                if (targetFile.length() == 0L && com.infinifolder.mime.MimeRegistry.isTextBased(extensionMime)) extensionMime
+                else FileMagicDetector.validatedExtensionMime(targetFile.name, extensionMime, magic)
             }
         }
         val perm = if (isBroken) {

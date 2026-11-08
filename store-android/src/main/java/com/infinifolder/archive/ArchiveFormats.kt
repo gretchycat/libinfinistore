@@ -34,7 +34,11 @@ object ArchiveFormats {
     private val COMPOUND_EXTENSIONS = TAR_COMPOUND_EXTENSIONS + DISC_COMPOUND_EXTENSIONS
 
     val PLAYLIST_EXTENSIONS = setOf(
-        "m3u", "m3u8", "pls", "xspf", "cue"
+        "m3u", "m3u8", "pls", "xspf", "jspf", "cue", "toc"
+    )
+    private val PLAYLIST_MIME_TYPES = setOf(
+        "audio/x-mpegurl", "audio/mpegurl", "audio/x-scpls", "application/xspf+xml",
+        "application/jspf+json", "application/x-cue", "application/x-cdrdao-toc"
     )
 
     private val SIMPLE_EXTENSIONS = setOf(
@@ -47,7 +51,8 @@ object ArchiveFormats {
 
     fun isPlaylist(name: String, mimeType: String = ""): Boolean {
         val ext = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
-        return ext in PLAYLIST_EXTENSIONS
+        return ext in PLAYLIST_EXTENSIONS ||
+            com.infinifolder.mime.MimeRegistry.normalize(mimeType) in PLAYLIST_MIME_TYPES
     }
 
     private val DISC_MIME_TYPES = setOf(

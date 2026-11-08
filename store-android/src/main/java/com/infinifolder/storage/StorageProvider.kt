@@ -29,6 +29,15 @@ interface StorageProvider : java.io.Closeable {
     fun recoverySource(ref: ResourceRef): ResourceRef? = null
     /** Stable transfer identity. Unknown identities must be treated as different devices. */
     fun deviceIdentity(ref: ResourceRef): String? = null
+    /** Path- and session-specific transfer support. Unsupported means the provider has no native path. */
+    fun transferCapabilities(request: StorageTransferRequest): ProviderResult<StorageTransferCapabilities> =
+        ProviderResult.Unsupported(if (request.move) ResourceCapability.MOVE else ResourceCapability.COPY)
+    /** Move an entry with a backend-native operation. Unsupported must make no changes. */
+    fun nativeMove(request: StorageTransferRequest, isCancelled: () -> Boolean = { false }): ProviderResult<ResourceEntry> =
+        ProviderResult.Unsupported(ResourceCapability.MOVE)
+    /** Copy one regular file without exposing its contents to the caller. Unsupported must make no changes. */
+    fun serverSideCopyFile(request: StorageTransferRequest, isCancelled: () -> Boolean = { false }): ProviderResult<ResourceEntry> =
+        ProviderResult.Unsupported(ResourceCapability.COPY)
     fun stat(ref: ResourceRef): ProviderResult<ResourceEntry> = ProviderResult.Unsupported(ResourceCapability.STAT)
     /** Export portable attributes; a backend may supply richer ACL/xattr data. */
     fun readTransferMetadata(ref: ResourceRef): ProviderResult<TransferMetadata> = when (val result = stat(ref)) {
@@ -67,6 +76,25 @@ interface StorageProvider : java.io.Closeable {
     fun copy(source: ResourceRef, destination: ResourceRef): ProviderResult<ResourceRef>
     fun move(source: ResourceRef, destination: ResourceRef): ProviderResult<ResourceRef>
 }
+
+/** A single destination name has already been selected by the existing collision policy. */
+data class StorageTransferRequest(
+    val source: ResourceRef,
+    val destinationParent: ResourceRef,
+    val destinationName: String,
+    val move: Boolean
+)
+
+/** Contextual capabilities; same URI scheme alone never establishes a shared server/session. */
+data class StorageTransferCapabilities(
+    val sameBackendSession: Boolean = false,
+    val sameFilesystem: Boolean? = null,
+    val nativeMove: Boolean = false,
+    val serverSideCopy: Boolean = false,
+    val atomicRename: Boolean = false
+)
+
+enum class TransferStrategy { NATIVE_MOVE, SERVER_SIDE_COPY, STREAMING_COPY, COPY_AND_DELETE }
 
 /** Optional direct-I/O contract; adding it does not change StorageProvider's JVM interface.
  * Providers with staged seekable views must return Unsupported instead of staging. */
