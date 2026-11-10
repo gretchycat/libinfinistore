@@ -146,7 +146,7 @@ object MimeRegistry {
         "kss" to "audio/x-kss", "gym" to "audio/x-gym", "ay" to "audio/x-ay", "sgc" to "audio/x-sgc",
         "spc" to "audio/x-spc", "sid" to "audio/x-sid",
         "dsf" to "audio/x-dsf", "dff" to "audio/x-dff", "wv" to "audio/x-wavpack", "tta" to "audio/x-tta", "ra" to "audio/x-pn-realaudio",
-        "mlp" to "audio/x-mlp", "thd" to "audio/x-truehd", "cdda" to "audio/x-cdda",
+        "mlp" to "audio/x-mlp", "thd" to "audio/x-truehd", "cdda" to "audio/x-cdda", "cdda-be" to "audio/x-cdda",
         "m3u" to "audio/x-mpegurl", "m3u8" to "audio/x-mpegurl", "pls" to "audio/x-scpls", "xspf" to "application/xspf+xml", "jspf" to "application/jspf+json", "cue" to "application/x-cue",
         "rm" to "application/vnd.rn-realmedia", "rmvb" to "application/vnd.rn-realmedia-vbr",
         "3gp" to "video/3gpp", "3gpp" to "video/3gpp", "3g2" to "video/3gpp2",
