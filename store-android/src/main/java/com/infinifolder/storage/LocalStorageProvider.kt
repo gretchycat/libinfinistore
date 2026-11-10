@@ -6,6 +6,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.os.Binder
+import android.os.Process
 import android.provider.DocumentsContract
 import androidx.core.content.FileProvider
 import com.infinifolder.model.*
@@ -21,40 +23,107 @@ class SharedFileProvider : FileProvider() {
         selectionArgs: Array<out String>?,
         sortOrder: String?
     ): android.database.Cursor {
-        val cursor = super.query(uri, projection, selection, selectionArgs, sortOrder)
-        val requestedColumns = projection ?: return cursor
-        if (!requestedColumns.contains(android.provider.MediaStore.MediaColumns.DATA)) {
+        val requestedColumns = projection ?: return super.query(uri, projection, selection, selectionArgs, sortOrder)
+        val wantsData = requestedColumns.contains(android.provider.MediaStore.MediaColumns.DATA)
+        val wantsDirectory = requestedColumns.contains(AUDIO_DIRECTORY_URI_COLUMN) ||
+            requestedColumns.contains(AUDIO_DIRECTORY_NAME_COLUMN)
+        val wantsCover = requestedColumns.contains(AUDIO_COVER_URI_COLUMN)
+        if (!wantsData && !wantsCover && !wantsDirectory) {
+            return super.query(uri, projection, selection, selectionArgs, sortOrder)
+        }
+
+        val directoryArtwork = if (wantsCover || wantsDirectory) findSiblingDirectoryArtwork(uri) else null
+        val baseColumns = requestedColumns.filterNot {
+            it == AUDIO_COVER_URI_COLUMN || it == AUDIO_DIRECTORY_URI_COLUMN || it == AUDIO_DIRECTORY_NAME_COLUMN
+        }
+            .ifEmpty { listOf(android.provider.OpenableColumns.DISPLAY_NAME, android.provider.OpenableColumns.SIZE) }
+        val cursor = super.query(uri, baseColumns.toTypedArray(), selection, selectionArgs, sortOrder)
+        if (!wantsData && !wantsCover && !wantsDirectory) {
             return cursor
         }
-        val columnNames = cursor.columnNames.toMutableList()
-        if (!columnNames.contains(android.provider.MediaStore.MediaColumns.DATA)) {
-            columnNames.add(android.provider.MediaStore.MediaColumns.DATA)
-        }
-        val matrix = android.database.MatrixCursor(columnNames.toTypedArray(), cursor.count)
-        cursor.moveToPosition(-1)
+        val matrix = android.database.MatrixCursor(requestedColumns, cursor.count)
         while (cursor.moveToNext()) {
             val row = matrix.newRow()
-            for (col in cursor.columnNames) {
-                val idx = cursor.getColumnIndex(col)
-                when (cursor.getType(idx)) {
-                    android.database.Cursor.FIELD_TYPE_STRING -> row.add(col, cursor.getString(idx))
-                    android.database.Cursor.FIELD_TYPE_INTEGER -> row.add(col, cursor.getLong(idx))
-                    android.database.Cursor.FIELD_TYPE_FLOAT -> row.add(col, cursor.getDouble(idx))
-                    android.database.Cursor.FIELD_TYPE_BLOB -> row.add(col, cursor.getBlob(idx))
-                    else -> row.add(col, null)
+            for (column in requestedColumns) {
+                when (column) {
+                    AUDIO_COVER_URI_COLUMN -> row.add(directoryArtwork?.coverUri?.toString())
+                    AUDIO_DIRECTORY_URI_COLUMN -> row.add(directoryArtwork?.directoryUri?.toString())
+                    AUDIO_DIRECTORY_NAME_COLUMN -> row.add(directoryArtwork?.directoryName)
+                    android.provider.MediaStore.MediaColumns.DATA -> row.add(localFile(uri)?.absolutePath)
+                    else -> {
+                        val index = cursor.getColumnIndex(column)
+                        row.add(if (index < 0 || cursor.isNull(index)) null else when (cursor.getType(index)) {
+                            android.database.Cursor.FIELD_TYPE_STRING -> cursor.getString(index)
+                            android.database.Cursor.FIELD_TYPE_INTEGER -> cursor.getLong(index)
+                            android.database.Cursor.FIELD_TYPE_FLOAT -> cursor.getDouble(index)
+                            android.database.Cursor.FIELD_TYPE_BLOB -> cursor.getBlob(index)
+                            else -> null
+                        })
+                    }
                 }
-            }
-            val path = uri.path?.removePrefix("/shared/")?.removePrefix("/root/")?.removePrefix("/cache/")
-            val file = if (path != null) {
-                val ext = File(Environment.getExternalStorageDirectory(), path)
-                if (ext.exists()) ext else File("/", path)
-            } else null
-            if (file != null && file.exists()) {
-                row.add(android.provider.MediaStore.MediaColumns.DATA, file.absolutePath)
             }
         }
         cursor.close()
         return matrix
+    }
+
+    private data class SiblingDirectoryArtwork(
+        val directoryUri: Uri?,
+        val directoryName: String?,
+        val coverUri: Uri?
+    )
+
+    private fun findSiblingDirectoryArtwork(sourceUri: Uri): SiblingDirectoryArtwork? {
+        val context = context ?: return null
+        val uid = Binder.getCallingUid()
+        if (uid != Process.myUid() && context.checkUriPermission(sourceUri, Binder.getCallingPid(), uid,
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION) != PackageManager.PERMISSION_GRANTED) {
+            throw SecurityException("Read access to the audio file is required to query its cover image")
+        }
+        val cover = runCatching {
+            LocalStorageProvider(context).use { provider ->
+                val source = provider.refForUri(sourceUri) ?: return null
+                val parent = (provider.parent(source) as? ProviderResult.Success)?.value ?: return null
+                val parentEntry = (provider.stat(parent) as? ProviderResult.Success)?.value ?: return null
+                val cover = StorageSafety.complete(provider.list(parent))
+                    .asSequence()
+                    .filter { !it.metadata.isDirectory && !it.metadata.isSymbolicLink && !it.metadata.isBrokenLink && it.metadata.canRead }
+                    .filter { it.metadata.name.startsWith("cover.", ignoreCase = true) }
+                    .filter {
+                        it.metadata.mimeType.startsWith("image/", ignoreCase = true) ||
+                            com.infinifolder.mime.MimeRegistry.guess(it.metadata.name).startsWith("image/", ignoreCase = true)
+                    }
+                    .sortedWith(Comparator { left: ResourceEntry, right: ResourceEntry ->
+                        val byCaseInsensitiveName = left.metadata.name.compareTo(right.metadata.name, ignoreCase = true)
+                        if (byCaseInsensitiveName != 0) byCaseInsensitiveName else left.metadata.name.compareTo(right.metadata.name)
+                    })
+                    .firstOrNull()
+                SiblingDirectoryArtwork(parentEntry.uri, parentEntry.metadata.name, cover?.uri)
+            }
+        }.getOrNull() ?: return null
+
+        if (uid != Process.myUid() && cover.coverUri != null) {
+            val recipients = context.packageManager.getPackagesForUid(uid).orEmpty()
+            recipients.forEach { packageName ->
+                context.grantUriPermission(packageName, cover.coverUri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+        }
+        return cover
+    }
+
+    private fun localFile(uri: Uri): File? {
+        val path = uri.path?.removePrefix("/shared/")?.removePrefix("/root/")?.removePrefix("/cache/")
+        return if (path == null) null else {
+            val external = File(Environment.getExternalStorageDirectory(), path)
+            if (external.exists()) external else File("/", path)
+        }
+    }
+
+    companion object {
+        /** Additional projection available to a caller already granted access to the source URI. */
+        const val AUDIO_COVER_URI_COLUMN = "com.infinifolder.audio.directory_cover_uri"
+        const val AUDIO_DIRECTORY_URI_COLUMN = "com.infinifolder.audio.directory_uri"
+        const val AUDIO_DIRECTORY_NAME_COLUMN = "com.infinifolder.audio.directory_name"
     }
 
     override fun getType(uri: Uri): String? {
