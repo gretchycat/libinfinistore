@@ -8,7 +8,7 @@ android {
     testOptions { unitTests.isReturnDefaultValues = true }
 }
 dependencies {
-    api("io.github.gretchycat.libinfinistream:stream-core:0.1.0")
+    api("io.github.gretchycat.libinfinicore:core-android:0.1.0")
     api("androidx.core:core:1.15.0")
     api("org.apache.commons:commons-compress:1.27.1")
     api("org.tukaani:xz:1.10")

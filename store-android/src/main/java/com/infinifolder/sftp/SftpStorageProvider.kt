@@ -80,15 +80,19 @@ class SftpStorageProvider(
             val path = literalPath(SftpUri.getRemotePath(uri))
             val current = channel.lstat(path)
             metadata.mode?.takeIf { (current.permissions and 0xFFF) != it }?.let { attrs.setPERMISSIONS(it); hasFields = true }
-            if (metadata.uid != null && metadata.gid != null &&
-                (current.uId.toLong() != metadata.uid || current.gId.toLong() != metadata.gid)) {
-                attrs.setUIDGID(metadata.uid.toInt(), metadata.gid.toInt())
+            val uid = metadata.uid
+            val gid = metadata.gid
+            val accessedSeconds = metadata.accessedSeconds
+            val modifiedSeconds = metadata.modifiedSeconds
+            if (uid != null && gid != null &&
+                (current.uId.toLong() != uid || current.gId.toLong() != gid)) {
+                attrs.setUIDGID(uid.toInt(), gid.toInt())
                 hasFields = true
             }
-            if (metadata.accessedSeconds != null && metadata.modifiedSeconds != null &&
-                ((current.aTime.toLong() and 0xffffffffL) != metadata.accessedSeconds ||
-                    (current.mTime.toLong() and 0xffffffffL) != metadata.modifiedSeconds)) {
-                attrs.setACMODTIME(metadata.accessedSeconds.toInt(), metadata.modifiedSeconds.toInt())
+            if (accessedSeconds != null && modifiedSeconds != null &&
+                ((current.aTime.toLong() and 0xffffffffL) != accessedSeconds ||
+                    (current.mTime.toLong() and 0xffffffffL) != modifiedSeconds)) {
+                attrs.setACMODTIME(accessedSeconds.toInt(), modifiedSeconds.toInt())
                 hasFields = true
             }
             if (!hasFields) return@withChannel

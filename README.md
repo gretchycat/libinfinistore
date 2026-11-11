@@ -1,5 +1,23 @@
 # libinfinistore
 
+## Reproducible standalone build
+
+Install JDK 17 or 21, Python 3, Android SDK platform 36/build tools 35.0.0,
+and (for JNI modules) NDK 27.2.12479018/CMake 3.22.1. Set `ANDROID_HOME` or
+this checkout's untracked `local.properties`. The checked-in Gradle 9.7.1 wrapper
+is verified by its distribution SHA-256.
+
+```sh
+python3 scripts/fetch-dependencies.py
+./gradlew :store-android:testDebugUnitTest :store-android:assembleDebug
+```
+
+The lock includes only this library's required source dependencies, including
+transitive dependencies. Fetching checks pin agreement and refuses to overwrite
+local changes. `python3 scripts/fetch-dependencies.py --check` checks revisions.
+No application checkout is required. CI uses the same commands from a fresh clone.
+
+
 Runtime discovery: [handler schema, registration, linked dependencies and limits](CAPABILITIES.md).
 
 Structural extraction from gretchycat/infinifolder at 9233495.
@@ -8,7 +26,7 @@ Implementation ownership and validation are recorded in SOURCE_PROVENANCE.md.
 Build using JDK 17+ and Gradle 9.7.1. Android adapters need SDK 36/min API 26.
 Run `gradle :store-android:testDebugUnitTest` and the relevant assemble task.
 
-Source dependencies: libinfinistream. Clone them beside this repository (or set -PinfiniLibrariesDir). InfiniFolder pins the complete tested set as submodules; standalone builds use these same sources, not unpublished Maven binaries. Android codec/protocol backends remain in explicit Android modules.
+Source dependencies are pinned in `dependencies.lock.json` and fetched inside this checkout. No sibling source directories are used.
 
 Original-code licensing is pending owner selection; see LICENSE.md. No original implementation is rewritten or relicensed by this move.
 
@@ -173,3 +191,7 @@ connection-wide; unsupported work and cancellation do not imply unavailability.
 Neutral observations and buffered reads do not assert a reconnection. Existing
 key-only APIs and listeners remain available. SMB tests publish their result
 under the caller's connection ID, independently of the temporary probe context.
+
+## Separation audit update
+
+Resource contracts, local/SAF adapters, generic operations and guarded I/O now belong to libinfinicore. Store owns concrete remote protocols, torrent/installed-app/virtual-location providers and advanced routing. Store re-exports Core for existing callers; Core never depends on Store.
