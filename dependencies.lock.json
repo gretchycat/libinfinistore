@@ -3,7 +3,7 @@
   "repositories": {
     "libinfinicore": {
       "url": "https://github.com/gretchycat/libinfinicore.git",
-      "commit": "1fb1c266ff037c6924571406af814ab638beb464"
+      "commit": "0f98a0e9c94e9de0133e4e1ab53a1274b0fd33d8"
     },
     "libinfinistream": {
       "url": "https://github.com/gretchycat/libinfinistream.git",
